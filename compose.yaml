@@ -1,0 +1,17 @@
+# OzDDNS — single-container deployment.
+# The panel is published to the host loopback only; change the ports line to
+# "9876:9876" if you really want to expose it, and set a password first.
+services:
+  ozddns:
+    build: .
+    image: ozddns:latest
+    container_name: ozddns
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9876:9876"
+    volumes:
+      - ./data:/data
+    environment:
+      OZDDNS_DB: /data/ozddns.db
+      TZ: Asia/Shanghai
+    command: ["--db", "/data/ozddns.db", "serve", "--listen", "0.0.0.0:9876"]

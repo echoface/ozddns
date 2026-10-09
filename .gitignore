@@ -1,0 +1,9 @@
+/bin/
+/data/
+/web/screens/
+ozddns
+*.db
+*.db-shm
+*.db-wal
+coverage.out
+.DS_Store

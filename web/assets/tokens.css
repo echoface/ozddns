@@ -1,0 +1,153 @@
+/* ============================================================
+   OzDDNS — Design Tokens
+   Visual language: warm, editorial, "Anthropic" inspired.
+   Ivory paper, terracotta ink, serif display + humanist sans.
+   ============================================================ */
+
+:root {
+  /* ---- Surface / paper ---- */
+  --paper:        #F3F0E8;   /* app canvas (warm ivory) */
+  --paper-2:      #EFEBE1;   /* recessed wells */
+  --surface:      #FBFAF6;   /* sidebars / secondary panels */
+  --card:         #FFFFFF;   /* raised cards */
+  --card-2:       #FCFAF5;   /* subtle card */
+
+  /* ---- Ink ---- */
+  --ink:          #1B1A16;   /* primary text */
+  --ink-2:        #56534B;   /* secondary text */
+  --ink-3:        #8B877C;   /* muted / meta */
+  --ink-4:        #B3AFA3;   /* faint */
+
+  /* ---- Lines ---- */
+  --line:         #E5E0D3;   /* hairline borders */
+  --line-2:       #EEEBE1;   /* inner dividers */
+  --line-strong:  #D8D2C2;
+
+  /* ---- Brand: terracotta / coral ---- */
+  --coral:        #D97757;
+  --coral-600:    #C4603C;
+  --coral-700:    #A94E2F;
+  --coral-050:    #F8EAE2;
+  --coral-100:    #F2D8CB;
+
+  /* ---- Semantic ---- */
+  --olive:        #5F7C4E;   /* success */
+  --olive-050:    #E9EEDF;
+  --amber:        #B8862B;   /* warning */
+  --amber-050:    #F6ECD3;
+  --rust:         #B14630;   /* danger */
+  --rust-050:     #F6E1D8;
+  --slate:        #4F6B7E;   /* info / neutral accent */
+  --slate-050:    #E3EBEF;
+  --violet:       #6E5A86;   /* protocol label */
+  --violet-050:   #ECE6F1;
+
+  /* ---- Radii ---- */
+  --r-xs: 7px;
+  --r-sm: 9px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 22px;
+  --r-pill: 999px;
+
+  /* ---- Shadow ---- */
+  --sh-xs: 0 1px 2px rgba(40,34,22,.05);
+  --sh-sm: 0 1px 3px rgba(40,34,22,.06), 0 1px 2px rgba(40,34,22,.04);
+  --sh-md: 0 6px 18px -8px rgba(40,34,22,.18), 0 2px 6px -2px rgba(40,34,22,.08);
+  --sh-lg: 0 24px 60px -24px rgba(40,34,22,.30), 0 8px 24px -12px rgba(40,34,22,.14);
+  --ring:  0 0 0 3px rgba(217,119,87,.28);
+
+  /* ---- Type ---- */
+  --font-display: "Fraunces", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+  --font-sans: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", "Menlo", "Consolas", monospace;
+
+  /* ---- Layout ---- */
+  --sidebar-w: 264px;
+  --topbar-h: 68px;
+  --maxw: 1240px;
+
+  /* ---- Motion ---- */
+  --ease: cubic-bezier(.22,.61,.36,1);
+  --ease-out: cubic-bezier(.16,1,.3,1);
+}
+
+/* Provider-family accents used by logos, chips and tables */
+:root {
+  --pv-cloudflare: #E08A2E;    --pv-cloudflare-bg: #FBEEDB;
+  --pv-ali:        #C0522F;    --pv-ali-bg:        #F9E5DD;
+  --pv-dnspod:     #2F6FB0;    --pv-dnspod-bg:     #E1ECF6;
+  --pv-godaddy:    #4E9A5B;    --pv-godaddy-bg:    #E3F0E4;
+  --pv-namecheap:  #B7613D;    --pv-namecheap-bg:  #F6E7DF;
+  --pv-duckdns:    #C99A2E;    --pv-duckdns-bg:    #F6EED7;
+  --pv-desec:      #55607A;    --pv-desec-bg:      #E6E8EF;
+  --pv-vercel:     #1B1A16;    --pv-vercel-bg:     #E9E7E0;
+  --pv-custom:     #6E5A86;    --pv-custom-bg:     #ECE6F1;
+}
+
+/* ============================================================
+   Dark theme — warm charcoal, the terracotta accent kept alive.
+   Activated by <html data-theme="dark"> (see assets/theme.js).
+   Every token is re-declared so components that read a token flip
+   automatically; a handful of hardcoded washes are overridden in
+   app.css under the same data-theme scope.
+   ============================================================ */
+:root[data-theme="dark"] {
+  /* ---- Surface / paper ---- */
+  --paper:        #17150F;   /* app canvas */
+  --paper-2:      #201D16;   /* recessed wells */
+  --surface:      #1D1A14;   /* sidebars / secondary panels */
+  --card:         #23201A;   /* raised cards */
+  --card-2:       #2A261F;   /* subtle card */
+
+  /* ---- Ink ---- */
+  --ink:          #F2EEE3;
+  --ink-2:        #CCC6B7;
+  --ink-3:        #9A9384;
+  --ink-4:        #6E6859;
+
+  /* ---- Lines ---- */
+  --line:         #34302A;
+  --line-2:       #2A2721;
+  --line-strong:  #45403A;
+
+  /* ---- Brand: terracotta / coral (lifted for contrast on dark) ---- */
+  --coral:        #E08A69;
+  --coral-600:    #CE6E4A;
+  --coral-700:    #E7A184;
+  --coral-050:    #372821;
+  --coral-100:    #493226;
+
+  /* ---- Semantic ---- */
+  --olive:        #94B275;   /* success */
+  --olive-050:    #232A1C;
+  --amber:        #D8AB58;   /* warning */
+  --amber-050:    #2F2718;
+  --rust:         #DE8874;   /* danger */
+  --rust-050:     #33211C;
+  --slate:        #92B2C6;   /* info */
+  --slate-050:    #1E262C;
+  --violet:       #AC96C7;   /* protocol label */
+  --violet-050:   #29232F;
+
+  /* ---- Shadow (deeper, since dark surfaces absorb less light) ---- */
+  --sh-xs: 0 1px 2px rgba(0,0,0,.40);
+  --sh-sm: 0 1px 3px rgba(0,0,0,.45), 0 1px 2px rgba(0,0,0,.35);
+  --sh-md: 0 8px 22px -10px rgba(0,0,0,.62), 0 3px 8px -3px rgba(0,0,0,.48);
+  --sh-lg: 0 28px 64px -26px rgba(0,0,0,.78), 0 10px 28px -14px rgba(0,0,0,.55);
+  --ring:  0 0 0 3px rgba(224,138,105,.30);
+}
+
+/* Provider-family accents get darker backgrounds so the chip labels stay
+   legible against the charcoal cards. */
+:root[data-theme="dark"] {
+  --pv-cloudflare: #E8A954;    --pv-cloudflare-bg: #3A2C17;
+  --pv-ali:        #DB7A57;    --pv-ali-bg:        #37221B;
+  --pv-dnspod:     #6BA6D8;    --pv-dnspod-bg:     #1E2B38;
+  --pv-godaddy:    #74BB80;    --pv-godaddy-bg:    #1F2E20;
+  --pv-namecheap:  #D08A66;    --pv-namecheap-bg:  #33251D;
+  --pv-duckdns:    #D6B45E;    --pv-duckdns-bg:    #322B18;
+  --pv-desec:      #97A0BE;    --pv-desec-bg:      #23242F;
+  --pv-vercel:     #E7E4DA;    --pv-vercel-bg:     #2C2A24;
+  --pv-custom:     #B39CC6;    --pv-custom-bg:     #29232F;
+}

@@ -1,0 +1,12 @@
+.git
+bin
+data
+*.db
+*.db-shm
+*.db-wal
+coverage.out
+web/screens
+docs
+README.md
+Makefile
+compose.yaml
