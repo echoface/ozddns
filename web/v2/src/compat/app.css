@@ -440,13 +440,13 @@ button.step.on:hover { background: var(--coral-050); }
 .pick .d { color: var(--ink-3); font-size: 12px; margin-top: 2px; }
 
 /* ---------- Drawer / Modal ---------- */
-.scrim { position: fixed; inset: 0; background: rgba(30,26,18,.34); backdrop-filter: blur(3px); z-index: 60; opacity: 0; animation: fade .2s var(--ease) forwards; }
+.scrim { position: fixed; inset: 0; background: rgba(30,26,18,.34); backdrop-filter: blur(3px); z-index: 60; animation: fade .2s var(--ease); }
 .modal { position: fixed; z-index: 61; inset: 0; display: grid; place-items: center; padding: 24px; pointer-events: none; }
 .modal .sheet {
   pointer-events: auto; width: min(620px, 100%); max-height: 88vh; overflow: auto;
   background: var(--card); border: 1px solid var(--line); border-radius: var(--r-xl);
-  box-shadow: var(--sh-lg); transform: translateY(10px) scale(.985); opacity: 0;
-  animation: pop .26s var(--ease-out) forwards;
+  box-shadow: var(--sh-lg);
+  animation: pop .26s var(--ease-out);
 }
 .modal .sheet.wide { width: min(880px, 100%); }
 .sheet-head { display: flex; align-items: flex-start; gap: 14px; padding: 20px 22px 14px; }
@@ -457,7 +457,7 @@ button.step.on:hover { background: var(--coral-050); }
 
 .drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(560px, 100%); z-index: 61;
   background: var(--card); border-left: 1px solid var(--line); box-shadow: var(--sh-lg);
-  display: flex; flex-direction: column; transform: translateX(24px); opacity: 0; animation: slidein .3s var(--ease-out) forwards; }
+  display: flex; flex-direction: column; animation: slidein .3s var(--ease-out); }
 .drawer-head { display: flex; align-items: center; gap: 14px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
 .drawer-body { padding: 20px; overflow: auto; flex: 1; }
 .drawer-foot { padding: 14px 20px; border-top: 1px solid var(--line); display: flex; gap: 10px; justify-content: flex-end; background: var(--card-2); }
@@ -516,9 +516,9 @@ button.step.on:hover { background: var(--coral-050); }
 .code .c { color: #8B8577; } .code .k { color: #E0A184; } .code .s { color: #B7CB9D; }
 
 /* animations */
-@keyframes fade { to { opacity: 1; } }
-@keyframes pop { to { transform: none; opacity: 1; } }
-@keyframes slidein { to { transform: none; opacity: 1; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop { from { transform: translateY(10px) scale(.985); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes slidein { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes toastin { from { transform: translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes shimmer { to { background-position: -120% 0; } }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
@@ -539,7 +539,7 @@ button.step.on:hover { background: var(--coral-050); }
   .sidebar { position: fixed; z-index: 70; width: 280px; transform: translateX(-100%); transition: transform .26s var(--ease); }
   .app.nav-open .sidebar { transform: none; box-shadow: var(--sh-lg); }
   .app.nav-open .nav-scrim { display: block; position: fixed; inset: 0; z-index: 60; cursor: pointer;
-    background: rgba(30,26,18,.34); backdrop-filter: blur(2px); opacity: 0; animation: fade .2s var(--ease) forwards; }
+    background: rgba(30,26,18,.34); backdrop-filter: blur(2px); animation: fade .2s var(--ease); }
   .mobile-toggle { display: grid; }
   .content { padding: 18px; }
   .topbar { padding: 0 16px; }

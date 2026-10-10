@@ -2,7 +2,9 @@
 import { computed, reactive, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "../components/Icon.vue";
+import TargetPicker from "../components/TargetPicker.vue";
 import { Banner, Pill, Toggle } from "../components/UiKit";
+import { defaultTarget, targetPlaceholder, targetPresets } from "../ipsourceTargets";
 import { splitDomains, t } from "../lib";
 import { api, bootState, data, fail, getJob, getSource, notify, refresh } from "../store";
 
@@ -44,22 +46,17 @@ const recordType = computed(() => form.family === "v6" ? "AAAA" : "A");
 const domains = computed(() => splitDomains(form.domains));
 const enabledProviders = computed(() => data.providers.filter((provider) => provider.enabled));
 const sourceUsers = computed(() => pickedSource.value ? data.jobs.filter((job) => job.ipSourceId === pickedSource.value?.id).length : 0);
-const interfaceOptions = computed(() => (data.interfaces || []).flatMap((item: any) =>
-  (item.addresses || []).filter((address: any) => address.family === form.family).map((address: any) => ({
-    value: address.target,
-    label: `${item.name} · ${address.addr} /${address.prefix}`
-  }))
-));
+const sourceTargetPresets = computed(() => targetPresets(form.sourceType || "http", form.family || "v4", data.interfaces));
+const sourceTargetPlaceholder = computed(() => targetPlaceholder(form.sourceType || "http", form.family || "v4"));
 
 watch(pickedSource, (source) => {
   if (source) form.family = source.family;
 });
 
-watch(() => form.sourceType, (type) => {
-  if (type === "http" && !form.sourceTarget) form.sourceTarget = "https://api.ipify.org";
-  else if (type === "interface" && interfaceOptions.value.length) form.sourceTarget = interfaceOptions.value[0].value;
-  else if (type === "command" && !form.sourceTarget) form.sourceTarget = "tailscale ip -6";
-});
+// Switching kind makes the previous target meaningless, so seed the new default.
+function onSourceTypeChange(): void {
+  form.sourceTarget = defaultTarget(form.sourceType || "http", form.family || "v4", data.interfaces);
+}
 
 async function testSource(): Promise<void> {
   if (!pickedSource.value) return;
@@ -187,11 +184,10 @@ async function save(): Promise<void> {
         </div>
       </div>
       <div v-else class="row2">
-        <select v-model="form.sourceType" class="input">
+        <select v-model="form.sourceType" class="input" @change="onSourceTypeChange">
           <option v-for="type in data.ipSourceTypes" :key="type.id" :value="type.id">{{ t(type.label) }}</option>
         </select>
-        <select v-if="form.sourceType === 'interface' && interfaceOptions.length" v-model="form.sourceTarget" class="input mono"><option v-for="item in interfaceOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select>
-        <input v-else v-model="form.sourceTarget" class="input mono" :placeholder="form.sourceType === 'command' ? 'tailscale ip -6' : form.sourceType === 'static' ? (form.family === 'v6' ? '2001:db8::1' : '203.0.113.42') : 'https://api.ipify.org'">
+        <TargetPicker v-model="form.sourceTarget" :options="sourceTargetPresets" :placeholder="sourceTargetPlaceholder" />
       </div>
       <span class="help">{{ t(pickedSource ? "This task shares the saved source — nothing new is stored, and OzDDNS resolves it on every run." : "Returns the caller IP as plain text.") }}</span>
     </div>

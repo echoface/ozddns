@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from "vue";
 import Icon from "./Icon.vue";
+import TargetPicker from "./TargetPicker.vue";
 import {
   Banner,
   Pill,
@@ -21,16 +22,24 @@ import {
   refresh,
   runJob
 } from "../store";
+import { defaultTarget, targetPlaceholder, targetPresets } from "../ipsourceTargets";
 
 const form = reactive<Record<string, any>>({});
 
 watch(modal, (value) => {
   Object.keys(form).forEach((key) => delete form[key]);
-  if (value?.type === "source" && value.source) {
-    form.name = value.source.name;
-    form.sourceType = value.source.type;
-    form.family = value.source.family;
-    form.target = value.source.target;
+  if (value?.type === "source") {
+    if (value.source) {
+      form.name = value.source.name;
+      form.sourceType = value.source.type;
+      form.family = value.source.family;
+      form.target = value.source.target;
+    } else {
+      // Seed defaults so the Type / Family / Target controls start in sync.
+      form.sourceType = "http";
+      form.family = "v4";
+      form.target = defaultTarget("http", "v4", data.interfaces);
+    }
   }
   if (value?.type === "provider-wizard") value.step ||= 0;
 }, { deep: false });
@@ -39,6 +48,34 @@ const runJobInfo = computed(() => modal.value?.type === "run" ? getJob(modal.val
 const sourceUsers = computed(() => modal.value?.source
   ? data.jobs.filter((job) => job.ipSourceId === modal.value?.source?.id).length
   : 0);
+const targetOptions = computed(() => targetPresets(form.sourceType || "http", form.family || "v4", data.interfaces));
+const sourceTargetPlaceholder = computed(() => targetPlaceholder(form.sourceType || "http", form.family || "v4"));
+const targetHelp = computed(() => {
+  switch (form.sourceType) {
+    case "interface":
+      return targetOptions.value.length
+        ? t("Pick one of this host's addresses, or type a NIC name (append #2 to use the second address of that family).")
+        : t("No matching local addresses were found; type a NIC name manually.");
+    case "command":
+      return t("Run this shell command and use the first matching address it prints.");
+    case "static":
+      return t("A fixed literal address, e.g. {example}.", { example: form.family === "v6" ? "2001:db8::1" : "203.0.113.42" });
+    default:
+      return t("Pick a public endpoint, or paste any URL that returns the address as text.");
+  }
+});
+
+// Switching kind makes the old target meaningless, so seed the new default.
+function onSourceTypeChange(): void {
+  form.target = defaultTarget(form.sourceType || "http", form.family || "v4", data.interfaces);
+}
+
+// Interface / static targets are family-scoped; re-seed them when it changes.
+function onFamilyChange(): void {
+  if (form.sourceType === "interface" || form.sourceType === "static") {
+    form.target = defaultTarget(form.sourceType, form.family || "v4", data.interfaces);
+  }
+}
 
 function close(): void {
   modal.value = null;
@@ -312,9 +349,13 @@ async function rerun(): Promise<void> {
             body="They read this source on their next run, so the change lands immediately. The address family is locked while tasks reference it."
           />
           <div class="field"><label>{{ t("Name") }} <span class="req">*</span></label><input v-model="form.name" class="input" placeholder="ipify (IPv4)"></div>
-          <div class="field"><label>{{ t("Type") }}</label><select v-model="form.sourceType" class="input"><option v-for="type in data.ipSourceTypes" :key="type.id" :value="type.id">{{ t(type.label) }}</option></select></div>
-          <div class="field"><label>{{ t("Family") }}</label><select v-model="form.family" class="input" :disabled="sourceUsers > 0"><option value="v4">IPv4</option><option value="v6">IPv6</option></select></div>
-          <div class="field"><label>{{ t("Target") }} <span class="req">*</span></label><input v-model="form.target" class="input mono" placeholder="https://api.ipify.org"></div>
+          <div class="field"><label>{{ t("Type") }}</label><select v-model="form.sourceType" class="input" @change="onSourceTypeChange"><option v-for="type in data.ipSourceTypes" :key="type.id" :value="type.id">{{ t(type.label) }}</option></select></div>
+          <div class="field"><label>{{ t("Family") }}</label><select v-model="form.family" class="input" :disabled="sourceUsers > 0" @change="onFamilyChange"><option value="v4">IPv4</option><option value="v6">IPv6</option></select></div>
+          <div class="field">
+            <label>{{ t("Target") }} <span class="req">*</span></label>
+            <TargetPicker v-model="form.target" :options="targetOptions" :placeholder="sourceTargetPlaceholder" />
+            <span class="help">{{ targetHelp }}</span>
+          </div>
         </div>
         <div class="sheet-foot">
           <button class="btn" @click="close">{{ t("Cancel") }}</button>
