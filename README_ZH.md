@@ -261,9 +261,10 @@ npm run dev
 `Publish container image` GitHub Actions 工作流会在 Pull Request 中验证容器构建，
 并将多架构镜像发布到 `ghcr.io/echoface/ozddns`：
 
-- 推送到 `master` 或 `main` 会发布分支名和 `sha-*` 标签；
+- 分支推送不会发布镜像；
 
-- 推送 `v1.2.3` 这样的标签会发布 `1.2.3`、`1.2`、`latest` 和 `sha-*`。
+- 推送 `v1.2.3` 这样的 Git tag 会发布 `v1.2.3`、`1.2.3`、`1.2` 和
+  `latest`。
 
 创建发布镜像：
 

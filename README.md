@@ -278,9 +278,9 @@ The `Publish container image` GitHub Actions workflow validates container builds
 on pull requests and publishes multi-platform images to
 `ghcr.io/echoface/ozddns`:
 
-- pushes to `master` or `main` publish the branch name and `sha-*` tags;
+- branch pushes do not publish images;
 
-- a tag such as `v1.2.3` publishes `1.2.3`, `1.2`, `latest`, and `sha-*`.
+- a Git tag such as `v1.2.3` publishes `v1.2.3`, `1.2.3`, `1.2`, and `latest`.
 
 Create a release image with:
 
