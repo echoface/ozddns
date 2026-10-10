@@ -90,6 +90,26 @@ start a new database with the demo dataset:
 `make build` installs the locked frontend dependencies, builds the Vue panel,
 embeds it, and produces `./bin/ozddns`.
 
+### Run the published image
+
+Release images are published to GitHub Container Registry for `linux/amd64` and
+`linux/arm64`:
+
+```bash
+docker volume create ozddns-data
+
+docker run -d \
+  --name ozddns \
+  --restart unless-stopped \
+  -p 127.0.0.1:9876:9876 \
+  -v ozddns-data:/data \
+  ghcr.io/echoface/ozddns:latest \
+  --db /data/ozddns.db serve --listen 0.0.0.0:9876
+```
+
+Use a version tag such as `ghcr.io/echoface/ozddns:1.0.0` when reproducible
+deployments are required.
+
 ### Docker Compose
 
 ```bash
@@ -251,6 +271,28 @@ npm run dev
 The generated `web/v2/dist` directory is intentionally committed because
 `go:embed`, `go install`, and direct Go tests require an embeddable panel to be
 present.
+
+### Publishing releases
+
+The `Publish container image` GitHub Actions workflow validates container builds
+on pull requests and publishes multi-platform images to
+`ghcr.io/echoface/ozddns`:
+
+- pushes to `master` or `main` publish the branch name and `sha-*` tags;
+
+- a tag such as `v1.2.3` publishes `1.2.3`, `1.2`, `latest`, and `sha-*`.
+
+Create a release image with:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+No registry secret is required; the workflow publishes with GitHub's scoped
+`GITHUB_TOKEN`. After the first successful run, open the package settings on
+GitHub and change its visibility to **Public** if anonymous pulls are required.
+GitHub warns that this visibility change cannot be reversed.
 
 ## Acknowledgements
 

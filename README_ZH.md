@@ -83,6 +83,25 @@ make build
 `make build` 会安装锁定版本的前端依赖、构建 Vue 面板、将其嵌入并生成
 `./bin/ozddns`。
 
+### 运行已发布镜像
+
+发布镜像存放在 GitHub Container Registry，同时支持 `linux/amd64` 和
+`linux/arm64`：
+
+```bash
+docker volume create ozddns-data
+
+docker run -d \
+  --name ozddns \
+  --restart unless-stopped \
+  -p 127.0.0.1:9876:9876 \
+  -v ozddns-data:/data \
+  ghcr.io/echoface/ozddns:latest \
+  --db /data/ozddns.db serve --listen 0.0.0.0:9876
+```
+
+需要可复现部署时，请使用 `ghcr.io/echoface/ozddns:1.0.0` 这样的版本标签。
+
 ### Docker Compose
 
 ```bash
@@ -236,6 +255,26 @@ npm run dev
 
 生成的 `web/v2/dist` 会被有意提交到仓库，因为 `go:embed`、`go install`
 以及直接执行 Go 测试都需要仓库中存在可嵌入的面板资源。
+
+### 发布版本
+
+`Publish container image` GitHub Actions 工作流会在 Pull Request 中验证容器构建，
+并将多架构镜像发布到 `ghcr.io/echoface/ozddns`：
+
+- 推送到 `master` 或 `main` 会发布分支名和 `sha-*` 标签；
+
+- 推送 `v1.2.3` 这样的标签会发布 `1.2.3`、`1.2`、`latest` 和 `sha-*`。
+
+创建发布镜像：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+不需要额外配置镜像仓库密钥；工作流使用 GitHub 提供的受限 `GITHUB_TOKEN` 发布。
+第一次成功运行后，如需允许匿名拉取，请在 GitHub 的 Package 设置中将可见性修改为
+**Public**。GitHub 会提示该可见性修改无法撤销。
 
 ## 致谢
 
