@@ -220,7 +220,8 @@
     v6: '2001:db8:8a2e:370:7334::1', v6Source: 'ifconfig.co', v6Checked: at(1)
   };
   var runtime = { scheduler: 'running', uptimeSeconds: 3 * DAY / 1000 + 4 * HOUR / 1000 + 12 * 60,
-    version: 'v0.9.0', build: '2026.10.09', dbPath: './data/ozddns.db', dbDriver: 'sqlite', listen: '127.0.0.1:9876' };
+    version: 'v0.9.0', build: '2026.10.09', dbPath: './data/ozddns.db', dbDriver: 'sqlite',
+    listen: '127.0.0.1:9876', goVersion: 'go1.26', goos: 'darwin', goarch: 'arm64' };
 
   var settings = {
     general: { language: 'en', theme: 'light', defaultInterval: 5, timezone: 'Asia/Shanghai' },

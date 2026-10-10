@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/echoface/ozddns/internal/domain"
 	"github.com/echoface/ozddns/internal/version"
@@ -54,6 +55,11 @@ func (a *App) Export(ctx context.Context) (ConfigBundle, error) {
 // collisions are reported as errors, leaving what already exists untouched.
 func (a *App) Import(ctx context.Context, b ConfigBundle, replace bool) (ImportStats, error) {
 	var stats ImportStats
+	if b.Settings.Timezone != "" {
+		if _, err := time.LoadLocation(b.Settings.Timezone); err != nil {
+			return stats, fmt.Errorf("invalid timezone %q", b.Settings.Timezone)
+		}
+	}
 
 	if replace {
 		for _, j := range mustList(a.Store.Jobs().List(ctx)) {

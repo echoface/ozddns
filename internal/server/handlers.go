@@ -390,3 +390,28 @@ func (s *Server) handleTestNotify(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
+
+func (s *Server) handleExportConfig(w http.ResponseWriter, r *http.Request) {
+	bundle, err := s.App.Export(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Disposition", `attachment; filename="ozddns-config.json"`)
+	writeJSON(w, http.StatusOK, bundle)
+}
+
+func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
+	bundle, err := decode[app.ConfigBundle](r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	stats, err := s.App.Import(r.Context(), bundle, true)
+	if err != nil {
+		writeError(w, statusFor(err), err.Error())
+		return
+	}
+	s.App.ApplySchedulerSettings(r.Context())
+	writeJSON(w, http.StatusOK, stats)
+}

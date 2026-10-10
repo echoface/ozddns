@@ -61,6 +61,7 @@ func (e *env) cmdServe(args []string) int {
 			addr = "127.0.0.1:9876"
 		}
 	}
+	a.ListenAddr = addr
 
 	if !*noScheduler {
 		a.Start(ctx)

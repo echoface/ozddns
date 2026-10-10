@@ -1,9 +1,9 @@
 # OzDDNS — Design specification
 
-> Status: **design locked for prototype v1**. This document is the source of truth the
+> Status: **design locked**. This document is the source of truth the
 > backend and CLI are built against.
 
-Interactive prototype: `web/index.html` (open directly — no build step).
+Panel implementation: `web/v2/` (Vue 3 + TypeScript, built with Vite).
 
 ---
 
@@ -28,7 +28,8 @@ Runs (executions) are the append-only record of what the engine did.
 ## 2. Design language — "warm editorial"
 
 The palette and type are chosen to feel like a considered print product rather than a
-generic admin dashboard. Everything is driven by tokens (`web/assets/tokens.css`).
+generic admin dashboard. Everything is driven by tokens
+(`web/v2/src/compat/tokens.css`).
 
 ### Color
 
@@ -84,10 +85,10 @@ Plus a full-screen **Sign in** view, and system-level **modals / drawers / toast
 | Providers | `#/providers` | Manage accounts | Add provider, filter by status |
 | Provider detail | `#/providers/:id` (+`/configuration`, `/usage`) | Inspect/validate/edit | Validate, Edit, Delete |
 | Sync tasks | `#/jobs` | Manage tasks | Run, toggle, open, New task |
-| Task detail | `#/jobs/:id` | See the diff + history | Run now, Edit, Delete |
+| Task detail | `#/jobs/:id` | See the diff + history | Preview, Run now, Edit, Delete |
 | New task | `#/jobs/new` | create a sync task | Create task, Cancel |
 | Executions | `#/executions` | Audit what happened | Filter, inspect a run |
-| Settings | `#/settings/:tab` | Configure instance | Save, test, create token |
+| Settings | `#/settings/:tab` | Configure instance | Save, test, backup/restore |
 | Sign in | `#/login` | Authenticate | Sign in |
 
 ### Global search
@@ -194,15 +195,17 @@ POST   /jobs/{id}/run             -> Run                   # run now
 POST   /jobs/{id}/dry-run         -> {diff}                # no writes
 
 GET    /runs?job=&status=&since=  -> Run[]
-GET    /runs/{id}                 -> Run (with steps + provider exchange)
+GET    /runs/{id}                 -> Run
 
 GET    /ip                        -> {v4,v6,checkedAt,source}
 GET    /status                    -> RuntimeStatus
 GET    /settings   PATCH /settings
 POST   /settings/test-notify
+GET    /config/export
+POST   /config/import
 ```
 
-### Domain model (mirrors `web/assets/data.js`)
+### Domain model (mirrors `web/v2/src/compat/data.js`)
 
 ```ts
 type Provider = {

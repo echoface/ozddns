@@ -27,6 +27,7 @@ type App struct {
 	Log        *slog.Logger
 	DBDriver   string
 	DBPath     string
+	ListenAddr string
 
 	healthMu sync.RWMutex
 	health   map[string]providerHealth

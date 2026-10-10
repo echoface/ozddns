@@ -87,7 +87,7 @@
 
 /* ============================================================
    Dark theme — warm charcoal, the terracotta accent kept alive.
-   Activated by <html data-theme="dark"> (see assets/theme.js).
+   Activated by <html data-theme="dark"> (see ../lib.ts).
    Every token is re-declared so components that read a token flip
    automatically; a handful of hardcoded washes are overridden in
    app.css under the same data-theme scope.

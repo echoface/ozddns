@@ -64,7 +64,8 @@ func do(t *testing.T, srv *httptest.Server, method, path string, body any, want 
 
 // The bootstrap payload carries everything the panel needs.
 func TestBootstrapPayload(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, a := newTestServer(t)
+	a.ListenAddr = "0.0.0.0:9999"
 	b := do(t, srv, "GET", "/api/v1/bootstrap", nil, 200)
 	if _, ok := b["providers"]; !ok {
 		t.Fatalf("bootstrap missing providers: %v", b)
@@ -72,6 +73,10 @@ func TestBootstrapPayload(t *testing.T) {
 	types, _ := b["providerTypes"].([]any)
 	if len(types) != 9 {
 		t.Fatalf("expected 9 provider types, got %d", len(types))
+	}
+	status, _ := b["status"].(map[string]any)
+	if status["listen"] != "0.0.0.0:9999" {
+		t.Fatalf("status listen = %v", status["listen"])
 	}
 }
 
@@ -240,6 +245,7 @@ func TestRunRetention(t *testing.T) {
 func TestSettingsPatchAndAuth(t *testing.T) {
 	srv, a := newTestServer(t)
 	do(t, srv, "PATCH", "/api/v1/settings", map[string]any{"timezone": "Asia/Shanghai", "defaultInterval": 7}, 200)
+	do(t, srv, "PATCH", "/api/v1/settings", map[string]any{"timezone": "Not/A_Timezone"}, 400)
 	got := do(t, srv, "GET", "/api/v1/settings", nil, 200)
 	if got["timezone"] != "Asia/Shanghai" {
 		t.Fatalf("timezone = %v", got["timezone"])
@@ -269,6 +275,71 @@ func TestSettingsPatchAndAuth(t *testing.T) {
 	_ = resp2.Body.Close()
 	if resp2.StatusCode != 200 {
 		t.Fatalf("authenticated status = %d, want 200", resp2.StatusCode)
+	}
+}
+
+func TestConfigExportAndReplaceImport(t *testing.T) {
+	srv, a := newTestServer(t)
+	p := do(t, srv, "POST", "/api/v1/providers", map[string]any{
+		"name": "Hook", "type": "custom",
+		"config": map[string]any{"url": "https://example.com/hook", "token": "secret"},
+	}, 201)
+	s := do(t, srv, "POST", "/api/v1/ip-sources", map[string]any{
+		"name": "Fixed", "type": "static", "family": "v4", "target": "203.0.113.9",
+	}, 201)
+	do(t, srv, "POST", "/api/v1/jobs", map[string]any{
+		"name": "Home", "providerId": p["id"], "ipSourceId": s["id"],
+		"targets": []map[string]any{{"domain": "home.example.com", "type": "A", "ttl": 300}},
+	}, 201)
+	if err := a.SetPassword(t.Context(), "admin", "hunter2"); err != nil {
+		t.Fatal(err)
+	}
+
+	req, _ := http.NewRequest("GET", srv.URL+"/api/v1/config/export", nil)
+	req.SetBasicAuth("admin", "hunter2")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var bundle map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&bundle); err != nil {
+		t.Fatal(err)
+	}
+	settings := bundle["settings"].(map[string]any)
+	if _, exists := settings["passwordHash"]; exists || settings["passwordSet"] != false {
+		t.Fatalf("export contains authentication material: %v", settings)
+	}
+
+	body, _ := json.Marshal(bundle)
+	importReq, _ := http.NewRequest("POST", srv.URL+"/api/v1/config/import", bytes.NewReader(body))
+	importReq.Header.Set("Content-Type", "application/json")
+	importReq.SetBasicAuth("admin", "hunter2")
+	importResp, err := http.DefaultClient.Do(importReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer importResp.Body.Close()
+	if importResp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(importResp.Body)
+		t.Fatalf("import status %d: %s", importResp.StatusCode, data)
+	}
+	var stats map[string]any
+	if err := json.NewDecoder(importResp.Body).Decode(&stats); err != nil {
+		t.Fatal(err)
+	}
+	if stats["providers"].(float64) != 1 || stats["ipSources"].(float64) != 1 || stats["jobs"].(float64) != 1 {
+		t.Fatalf("import stats = %v", stats)
+	}
+
+	if err := a.SetPassword(t.Context(), "admin", ""); err != nil {
+		t.Fatal(err)
+	}
+	settings["timezone"] = "Not/A_Timezone"
+	do(t, srv, "POST", "/api/v1/config/import", bundle, 400)
+	providers, err := a.Store.Providers().List(t.Context())
+	if err != nil || len(providers) != 1 {
+		t.Fatalf("invalid import changed existing config: providers=%d err=%v", len(providers), err)
 	}
 }
 

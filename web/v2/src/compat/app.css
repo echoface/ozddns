@@ -208,7 +208,6 @@ code, kbd { font-family: var(--font-mono); }
 .stat .val { font-family: var(--font-display); font-size: 28px; line-height: 1.1; letter-spacing: -0.02em; }
 .stat .val small { font-size: 14px; color: var(--ink-3); font-family: var(--font-sans); }
 .stat .foot { font-size: 12px; color: var(--ink-3); margin-top: auto; }
-.stat .spark { position: absolute; right: 14px; bottom: 12px; opacity: .9; }
 
 /* IP hero */
 .ip-hero { display: grid; grid-template-columns: 1.15fr 1fr; gap: 0; }
@@ -603,7 +602,7 @@ button.step.on:hover { background: var(--coral-050); }
    The palette flips entirely through the tokens in tokens.css.
    This block only patches the handful of washes, glass panels and
    inverted surfaces that were hardcoded for the light canvas.
-   Scoped to <html data-theme="dark"> (see assets/theme.js).
+   Scoped to <html data-theme="dark"> (see ../lib.ts).
    ============================================================ */
 :root[data-theme="dark"] body {
   background-image:

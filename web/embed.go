@@ -1,6 +1,4 @@
 // Package web embeds the management panel so a single binary ships the UI.
-// The panel is a static SPA (classic scripts) using hash routing, so serving the
-// files is all that is required.
 package web
 
 import (
@@ -9,13 +7,19 @@ import (
 	"net/http"
 )
 
-//go:embed index.html assets
+//go:embed v2/dist
 var files embed.FS
 
 // FS returns the embedded panel filesystem.
-func FS() fs.FS { return files }
+func FS() fs.FS {
+	panel, err := fs.Sub(files, "v2/dist")
+	if err != nil {
+		panic(err)
+	}
+	return panel
+}
 
 // Handler serves the panel.
 func Handler() http.Handler {
-	return http.FileServer(http.FS(files))
+	return http.FileServer(http.FS(FS()))
 }

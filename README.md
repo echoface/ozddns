@@ -1,198 +1,295 @@
 # OzDDNS
 
-A **provider-centric, pluggable, single-binary dynamic DNS manager** with a web panel
-and a CLI that share the same business logic.
+English | [简体中文](README_ZH.md)
 
-> Reconciliation, not polling: for every task OzDDNS reads the record that exists, reads
-> the address the host holds, and writes **only** when they disagree — and shows you the
-> diff when it does.
+OzDDNS is a provider-centric dynamic DNS manager for keeping DNS records aligned
+with addresses discovered from HTTP services, local interfaces, commands, or
+static values.
 
-One Go binary (`ozddns`) contains three things:
+It ships as a single Go binary with an embedded Vue web panel, a REST API, a
+management CLI, a scheduler, and SQLite storage. The shared reconciliation
+engine reads the current DNS record, computes a diff, and writes only when the
+desired state differs.
 
-1. **`ozddns serve`** — a REST API plus an embedded web panel (`go:embed`).
-2. **`ozddns <command>`** — a management CLI that calls the *same* application layer.
-3. **The engine** — a scheduler + reconciler shared by both.
+> OzDDNS is under active development. Review the [security notes](#security)
+> and [license status](#license) before exposing or redistributing it.
 
----
+## Highlights
+
+- **Reconciliation first**: inspect current and desired values before writing.
+
+- **Safe previews**: dry-run a task from the web panel, CLI, or REST API.
+
+- **Provider-centric configuration**: configure multiple accounts independently
+  and reuse them across tasks.
+
+- **Flexible address sources**: HTTP lookup, network interface, shell command,
+  or static IPv4/IPv6 address.
+
+- **One operational surface**: web panel, CLI, and API call the same application
+  layer.
+
+- **Built-in automation**: per-task intervals, optional jitter, concurrent
+  workers, pause/resume, run-all, and rolling execution history.
+
+- **Operations included**: notification webhooks, configuration backup/restore,
+  Basic authentication, health checks, and structured JSON CLI output.
+
+- **Single-binary delivery**: the production web bundle is embedded with
+  `go:embed`.
+
+- **Localized panel**: English, Simplified Chinese, and Japanese; light, dark,
+  and system themes.
+
+## Supported providers
+
+| Provider             | Type         |
+| -------------------- | ------------ |
+| Cloudflare           | `cloudflare` |
+| Alibaba Cloud DNS    | `alidns`     |
+| DNSPod (Tencent)     | `dnspod`     |
+| DuckDNS              | `duckdns`    |
+| Namecheap            | `namecheap`  |
+| GoDaddy              | `godaddy`    |
+| deSEC                | `desec`      |
+| Vercel DNS           | `vercel`     |
+| Custom HTTP endpoint | `custom`     |
+
+OzDDNS manages IPv4 `A` and IPv6 `AAAA` targets where supported by the selected
+provider. Cloudflare proxy state is supported for Cloudflare records.
 
 ## Quick start
 
-```bash
-# 1. Build
-make build                     # → ./bin/ozddns
+### Build from source
 
-# 2. Run with the demo dataset (providers, tasks and history to look at)
-./bin/ozddns --db ./ozddns.db serve --demo
-#   OzDDNS v1.0.0 — panel on http://127.0.0.1:9876/
+Requirements:
 
-# 3. Or drive it from the CLI
-./bin/ozddns --db ./ozddns.db provider add --type cloudflare --name "Home CF" --set api_token=… --set proxied=true
-./bin/ozddns --db ./ozddns.db source   add --name "ipify" --type http --family v4 --target https://api.ipify.org
-./bin/ozddns --db ./ozddns.db job      add --name "Home IPv4" --provider "Home CF" --source ipify --target home.example.com:A:300
-./bin/ozddns --db ./ozddns.db job      run --dry-run <job-id>   # show the diff, write nothing
-./bin/ozddns --db ./ozddns.db job      run <job-id>             # reconcile for real
-./bin/ozddns --db ./ozddns.db run      list
-./bin/ozddns --db ./ozddns.db status
-```
+- Go 1.26 or later
 
-Docker:
+- Node.js 22 or later and npm
+
+- GNU Make
 
 ```bash
-docker compose up -d --build     # panel on http://127.0.0.1:9876 (loopback-published)
+git clone https://github.com/echoface/ozddns.git
+cd ozddns
+make build
+
+./bin/ozddns --db ./ozddns.db serve
 ```
 
----
+Open <http://127.0.0.1:9876>.
 
-## Repository layout
+To explore the interface with sample providers, tasks, and execution history,
+start a new database with the demo dataset:
 
-```
-ozddns/
-├── cmd/ozddns/main.go          # the single binary entry point
-├── internal/
-│   ├── domain/                 # entities shared by every layer (no deps)
-│   ├── provider/               # Provider/Factory contract, registry, HTTP + zone helpers
-│   │   ├── cloudflare/ alidns/ dnspod/ duckdns/ namecheap/
-│   │   └── godaddy/ desec/ vercel/ custom/
-│   ├── providers/all.go        # one Register line per adapter — no central switch
-│   ├── ipsource/               # pluggable IP sources: http · interface · command · static
-│   ├── engine/                 # reconciler (diff + write) and scheduler
-│   ├── storage/                # repository interfaces + sqlite implementation
-│   ├── app/                    # use-cases shared by the API and the CLI
-│   ├── server/                 # REST handlers + middleware (auth, logging, recovery)
-│   ├── seed/                   # first-run defaults and the demo dataset
-│   ├── cli/                    # command-line interface
-│   └── version/                # build metadata (-ldflags)
-├── web/                        # the panel (embedded): index.html + assets/
-│   └── screens/                # reference screenshots
-├── docs/
-│   ├── 01-design.md            # design system, IA, screens, flows, API contract
-│   ├── 02-cases-and-testdata.md# every case + the canonical seed data
-│   ├── 03-reference-analysis.md# ddns-updater & ddns-go and how OzDDNS differs
-│   └── 04-delivery.md          # how to run, CLI/API reference, case→test map
-├── Makefile · Dockerfile · compose.yaml
+```bash
+./bin/ozddns --db ./demo.db serve --demo
 ```
 
-## The panel
+`make build` installs the locked frontend dependencies, builds the Vue panel,
+embeds it, and produces `./bin/ozddns`.
 
-The panel is a dependency-free SPA (classic scripts, hash routing) served from the
-binary. On load it calls `GET /api/v1/bootstrap` and **binds to the live backend**;
-if that call fails (e.g. you opened `web/index.html` from disk) it falls back to the
-built-in mock dataset, so the design prototype still works offline.
+### Docker Compose
 
-Screens: **Overview**, **Providers** (+ detail: Overview / Configuration / Used by),
-**Sync tasks** (+ the 5-step New-task wizard + reconciliation detail), **Executions**
-(+ run drawer with the old→new diff and provider exchange), **Settings** (General /
-Security / IP sources / Notifications / Storage / About) and **Sign in**.
-
-Example deep links: `#/providers`, `#/providers/p-cf/configuration`, `#/jobs/j-nas`,
-`#/jobs/new`, `#/executions`, `#/settings/security`.
-
-Screenshots live in `web/screens/`.
-
-## Languages
-
-The panel ships with **English, 简体中文 and 日本語** and switches instantly. A
-language is chosen from **Settings → General → Language** (persisted server-side in
-`settings.language`), or per-open with a query string — handy for demos and for
-sharing a link in one language:
-
-```
-http://127.0.0.1:9876/?lang=zh-CN#/overview
-http://127.0.0.1:9876/?lang=ja#/providers
+```bash
+docker compose up -d --build
 ```
 
-`web/assets/i18n.js` holds the engine and both catalogs. It works two ways:
+The included Compose configuration:
 
-1. `OZ.t('Enabled {name}', { name })` for strings assembled in JavaScript
-   (toasts, counters, relative times) — see `OZ.t` / `OZ.i18n.t`.
-2. A render-time DOM pass (`OZ.i18n.applyDOM`) that swaps every **whole** static
-   text node and `placeholder`/`title`/`aria-label` whose exact English phrase is
-   in the catalog. Because the catalog is keyed by the English source, an
-   untranslated phrase simply falls through — a missing entry can never break a
-   screen.
+- publishes the panel on `127.0.0.1:9876`;
 
-To add a language: add a code + label in `i18n.js`, add a catalog object, and done.
-Precedence at load: `?lang=` → saved choice (localStorage, offline) → server
-`settings.language` → browser locale.
+- stores the SQLite database under `./data`;
 
-## Theme
+- runs the service as a non-root user inside the container;
 
-Two palettes ship by default and switch instantly: **light** (ivory) and **dark**
-(warm charcoal, not a generic black), plus an **auto** mode that follows the OS
-via `prefers-color-scheme`. Flip it with the moon/sun button in the topbar or from
-**Settings → General → Theme**; the choice is persisted server-side in
-`settings.theme` and mirrored to `localStorage`. A query string pins a theme for
-a session, mirroring `?lang=`:
+- includes an HTTP health check.
 
-```
-http://127.0.0.1:9876/?theme=dark#/overview
+Follow the logs with:
+
+```bash
+docker compose logs -f
 ```
 
-`web/assets/theme.js` paints `data-theme` onto `<html>`; the palettes themselves
-are tokens in `web/assets/tokens.css`.
+## First configuration
 
-## Design language
+The web panel is the shortest setup path:
 
-"Warm editorial": ivory paper, terracotta accent, serif display (Fraunces) + humanist
-sans (Instrument Sans), hairline borders, generous whitespace. Tokens: `web/assets/tokens.css`;
-rationale: `docs/01-design.md`.
+1. Add and validate a DNS provider.
+2. Add an IP source.
+3. Create a sync task and its DNS targets.
+4. Preview the reconciliation diff.
+5. Run it once, then leave the scheduler enabled.
+6. Set an administrator password before exposing the panel beyond loopback.
 
-## Adding a provider
+The same flow is available from the CLI:
 
-There is **no central switch**. Write a package that implements `provider.Factory`
-(`Meta`, `ValidateConfig`, `New`) and a `provider.Provider` (`Validate`, `ListZones`,
-`ListRecords`, `Apply`), then add one line to `internal/providers/all.go`:
+```bash
+./bin/ozddns --db ./ozddns.db provider add \
+  --type cloudflare \
+  --name "Home Cloudflare" \
+  --set api_token="$CF_API_TOKEN"
 
-```go
-r.Register(myprovider.Factory{})
+./bin/ozddns --db ./ozddns.db source add \
+  --name "Public IPv4" \
+  --type http \
+  --family v4 \
+  --target https://api.ipify.org
+
+./bin/ozddns --db ./ozddns.db job add \
+  --name "Home IPv4" \
+  --provider "Home Cloudflare" \
+  --source "Public IPv4" \
+  --target home.example.com:A:300 \
+  --jitter
+
+./bin/ozddns --db ./ozddns.db job run --dry-run <job-id>
+./bin/ozddns --db ./ozddns.db job run <job-id>
 ```
 
-The registry reflection feeds the panel's "Add provider" form automatically, and the
-engine, API and CLI need no changes. See `internal/provider/custom/custom.go` for the
-smallest complete example.
+Use `ozddns --help` or `ozddns <command> --help` for the complete CLI reference.
+Add `--json` before a command when machine-readable output is supported.
+
+## Configuration backup
+
+Export and restore providers, IP sources, tasks, and settings:
+
+```bash
+./bin/ozddns --db ./ozddns.db config export --out ozddns-config.json
+./bin/ozddns --db ./ozddns.db config import --replace ozddns-config.json
+```
+
+The web panel provides the same operations under **Settings → Storage**.
+Execution history is not part of the configuration bundle.
+
+> Configuration exports contain provider credentials so that they can restore a
+> working instance. The panel password hash is excluded. Protect exported files
+> like secrets.
+
+## Architecture
+
+```text
+Web panel ─┐
+REST API ──┼── application services ── scheduler / reconciler
+CLI ───────┘              │                    │
+                          ├── SQLite            ├── IP sources
+                          └── settings           └── DNS providers
+```
+
+The main packages are:
+
+```text
+cmd/ozddns/          single binary entry point
+internal/app/        use cases shared by web, API, and CLI
+internal/engine/     scheduler and reconciliation diff
+internal/provider/   provider contract and built-in adapters
+internal/ipsource/   HTTP, interface, command, and static sources
+internal/storage/    repository contracts and SQLite implementation
+internal/server/     REST API and HTTP middleware
+web/v2/              Vue 3, TypeScript, and Vite panel
+web/                 embedded production assets
+```
+
+More detail:
+
+- [Design and architecture](docs/01-design.md)
+
+- [REST API reference](docs/api_references.md)
+
+## Extending providers
+
+A provider adapter implements `provider.Factory` and `provider.Provider`, then
+registers one factory in `internal/providers/all.go`. Provider metadata describes
+its configuration fields, allowing the panel to render the form without
+provider-specific UI code.
+
+The reconciliation engine remains provider-independent: adapters validate
+credentials, list zones and records, and apply changes; the engine owns address
+resolution, diff calculation, scheduling, and run history.
+
+See `internal/provider/custom/custom.go` for the smallest built-in adapter.
 
 ## Security
 
-- **Loopback first**: the default listen address is `127.0.0.1:9876`. Binding `0.0.0.0`
-  logs a warning; set a password before doing so.
-- **Secrets are masked** on every read path (API + CLI); the panel never receives a
-  plaintext credential it didn't just type.
-- HTTP Basic auth is enforced on `/api/v1/*` once a password is set. `ozddns config export`
-  never includes the password hash.
+- The default listen address is `127.0.0.1:9876`.
 
-## Reference projects
+- HTTP Basic authentication is enabled after an administrator password is set.
 
-The provider model is grounded in a source-level reading of two mature tools:
+- Provider secrets are masked in normal API, CLI, and panel reads.
 
-- [`qdm12/ddns-updater`](https://github.com/qdm12/ddns-updater) — one `Provider.Update`
-  per provider, JSON config, ~60 providers.
-- [`jeessy2/ddns-go`](https://github.com/jeessy2/ddns-go) — `DNS.Init` + `AddUpdateDomainRecords`,
-  YAML config, embedded panel, ~34 providers.
+- Provider credentials are stored in the SQLite database and configuration
+  exports. Protect both with filesystem permissions and backups appropriate for
+  secrets.
 
-Both dispatch providers with a hard-coded `switch`. OzDDNS adopts their reconciliation and
-IP-source ideas but uses a **registry + factory** and one shared **reconciler**. Details:
-`docs/03-reference-analysis.md`.
+- OzDDNS does not terminate TLS. Use a trusted reverse proxy for HTTPS before
+  exposing it to another network.
+
+- The command IP source executes a local shell command. Only trusted
+  administrators should be allowed to configure it.
 
 ## Development
 
 ```bash
-make test        # unit tests
-make test-race   # with -race
-make cover       # coverage report
-make vet         # go vet
-make fmt         # gofmt
+make web-v2      # build only the web panel
+make build       # build the panel and single binary
+make test        # run the Go test suite
+make test-race   # run tests with the race detector
+make vet         # run go vet
+make cover       # write coverage.out
+make docker      # build the container image
 ```
 
-## Roadmap
+Frontend development:
 
-- [x] **Phase 1 — Design**: interactive prototype, design spec, case + test-data design,
-      reference analysis.
-- [x] **Phase 2 — Backend & CLI**: domain model, provider registry (9 adapters),
-      SQLite storage & migrations, reconciler engine + scheduler, REST API, and the
-      shared-logic `ozddns` CLI.
-- [x] **Phase 3 — Integration & delivery**: panel bound to the live API, `go:embed`,
-      Docker/Compose, config export/import, and the test pass over the case catalogue.
+```bash
+cd web/v2
+npm ci
+npm run dev
+```
+
+The generated `web/v2/dist` directory is intentionally committed because
+`go:embed`, `go install`, and direct Go tests require an embeddable panel to be
+present.
+
+## Acknowledgements
+
+OzDDNS was informed by source-level study of two established DDNS projects:
+
+- [qdm12/ddns-updater](https://github.com/qdm12/ddns-updater) demonstrates a
+  broad provider ecosystem, periodic DNS reconciliation, a web interface, and
+  practical container delivery.
+
+- [jeessy2/ddns-go](https://github.com/jeessy2/ddns-go) demonstrates a
+  user-friendly embedded panel, multiple address acquisition methods, webhook
+  integration, and straightforward self-hosted deployment.
+
+OzDDNS is an independent implementation. It adopts the proven separation between
+address discovery and DNS updates, while using a provider registry, normalized
+SQLite storage, and a shared diff engine.
+
+The project also depends on and is made possible by:
+
+- [Go](https://go.dev/) and its standard library;
+
+- [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite), the CGo-free
+  SQLite driver used by the backend;
+
+- [Vue](https://vuejs.org/) and
+  [Vue Router](https://router.vuejs.org/) for the management panel;
+
+- [Vite](https://vite.dev/) and
+  [TypeScript](https://www.typescriptlang.org/) for frontend development and
+  production builds;
+
+- [SQLite](https://www.sqlite.org/) for durable local storage.
+
+Thanks to the maintainers and contributors of these projects. Their names and
+trademarks remain the property of their respective owners.
 
 ## License
 
-TBD.
+This repository does not currently include a project license. Source
+availability alone does not grant permission to use, modify, or redistribute
+the project. A license must be selected and added before treating OzDDNS as an
+open-source release.

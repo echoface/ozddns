@@ -14,8 +14,12 @@ LDFLAGS := -s -w \
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
+.PHONY: web-v2
+web-v2: ## Build the Vue management panel into web/v2/dist
+	cd web/v2 && npm ci && npm run build
+
 .PHONY: build
-build: ## Build the single binary into ./bin/ozddns
+build: web-v2 ## Build the single binary into ./bin/ozddns
 	@mkdir -p bin
 	CGO_ENABLED=0 go build $(GOFLAGS) -trimpath -ldflags "$(LDFLAGS)" -o bin/$(BINARY) ./cmd/ozddns
 
@@ -70,4 +74,4 @@ logs: ## Follow the container logs
 
 .PHONY: clean
 clean: ## Remove build artefacts
-	rm -rf bin coverage.out
+	rm -rf bin coverage.out web/v2/dist

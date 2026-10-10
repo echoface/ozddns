@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"runtime"
 	"time"
 
 	"github.com/echoface/ozddns/internal/domain"
@@ -24,6 +25,9 @@ type RuntimeStatus struct {
 	DBDriver      string    `json:"dbDriver"`
 	DBPath        string    `json:"dbPath"`
 	Listen        string    `json:"listen"`
+	GoVersion     string    `json:"goVersion"`
+	GOOS          string    `json:"goos"`
+	GOARCH        string    `json:"goarch"`
 	ServerTime    time.Time `json:"serverTime"`
 }
 
@@ -44,7 +48,11 @@ func (a *App) Status(ctx context.Context) (RuntimeStatus, error) {
 		UptimeSeconds: int64(a.Uptime().Seconds()),
 		Providers:     len(providers), Jobs: len(jobs), JobsEnabled: enabled,
 		DBDriver: a.DBDriver, DBPath: a.DBPath, Listen: settings.Listen,
+		GoVersion: runtime.Version(), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH,
 		ServerTime: time.Now().UTC(),
+	}
+	if a.ListenAddr != "" {
+		st.Listen = a.ListenAddr
 	}
 	st.RunsSuccess, _ = a.Store.Runs().CountByStatus(ctx, domain.StatusSuccess)
 	st.RunsNoChange, _ = a.Store.Runs().CountByStatus(ctx, domain.StatusNoChange)

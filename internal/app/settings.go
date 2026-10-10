@@ -43,6 +43,9 @@ func (a *App) PatchSettings(ctx context.Context, in SettingsInput) (domain.Setti
 		s.Theme = *in.Theme
 	}
 	if in.Timezone != nil && *in.Timezone != "" {
+		if _, err := time.LoadLocation(*in.Timezone); err != nil {
+			return domain.Settings{}, fmt.Errorf("invalid timezone %q", *in.Timezone)
+		}
 		s.Timezone = *in.Timezone
 	}
 	if in.DefaultInterval != nil && *in.DefaultInterval > 0 {

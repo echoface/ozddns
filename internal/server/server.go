@@ -77,6 +77,8 @@ func (s *Server) routes() {
 	m.HandleFunc("PATCH /api/v1/settings", s.handleUpdateSettings)
 	m.HandleFunc("POST /api/v1/settings/password", s.handleSetPassword)
 	m.HandleFunc("POST /api/v1/settings/test-notify", s.handleTestNotify)
+	m.HandleFunc("GET /api/v1/config/export", s.handleExportConfig)
+	m.HandleFunc("POST /api/v1/config/import", s.handleImportConfig)
 
 	if s.Panel != nil {
 		m.Handle("GET /", s.Panel)

@@ -1,0 +1,66 @@
+.content,
+.grid > * {
+  min-width: 0;
+}
+
+.overview-lower {
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) !important;
+}
+
+.table-card-scroll {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.file-picker {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.tl-text,
+.banner .b-body {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+@media (max-width: 900px) {
+  .app.nav-open .nav-scrim {
+    left: 280px;
+  }
+}
+
+@media (max-width: 1200px) {
+  .overview-lower {
+    grid-template-columns: 1fr !important;
+  }
+
+  .table-card-scroll > .table {
+    min-width: 720px;
+  }
+}
+
+@media (max-width: 560px) {
+  html,
+  body {
+    height: auto;
+    min-height: 100%;
+    overflow-x: clip;
+    overflow-y: visible;
+  }
+
+  .toasts {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+  }
+
+  .toast {
+    min-width: 0;
+    width: 100%;
+  }
+}

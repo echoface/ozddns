@@ -1,0 +1,273 @@
+# OzDDNS
+
+[English](README.md) | 简体中文
+
+OzDDNS 是一个以 DNS 服务商为中心的动态 DNS 管理器，用于将 DNS 记录持续同步到
+HTTP 服务、本机网卡、命令或静态配置所提供的地址。
+
+项目以单个 Go 二进制交付，内置 Vue 管理面板、REST API、管理 CLI、调度器和
+SQLite 存储。共享协调引擎会读取当前 DNS 记录、计算差异，并且仅在目标状态不一致时
+执行写入。
+
+> OzDDNS 仍在持续开发中。对外开放或重新分发前，请先阅读
+> [安全说明](#安全说明)与[许可证状态](#许可证)。
+
+## 主要特性
+
+- **以协调为核心**：写入前同时读取并展示当前值与目标值。
+
+- **安全预演**：可通过管理面板、CLI 或 REST API 对任务执行 Dry Run。
+
+- **服务商实例化管理**：可独立配置多个服务商账号，并在不同任务间复用。
+
+- **灵活的地址来源**：支持 HTTP 查询、本机网卡、Shell 命令和静态 IPv4/IPv6。
+
+- **统一业务逻辑**：管理面板、CLI 和 API 调用同一应用层。
+
+- **内置自动化能力**：任务独立周期、可选抖动、并发执行、暂停/恢复、全部运行和
+  滚动执行历史。
+
+- **运维能力完整**：Webhook 通知、配置备份恢复、Basic Auth、健康检查和 CLI
+  JSON 输出。
+
+- **单二进制交付**：生产前端通过 `go:embed` 嵌入 Go 二进制。
+
+- **多语言与主题**：管理面板支持 English、简体中文、日本語，以及亮色、暗色和
+  跟随系统主题。
+
+## 支持的服务商
+
+| 服务商         | 类型           |
+| ----------- | ------------ |
+| Cloudflare  | `cloudflare` |
+| 阿里云 DNS     | `alidns`     |
+| DNSPod（腾讯云） | `dnspod`     |
+| DuckDNS     | `duckdns`    |
+| Namecheap   | `namecheap`  |
+| GoDaddy     | `godaddy`    |
+| deSEC       | `desec`      |
+| Vercel DNS  | `vercel`     |
+| 自定义 HTTP 端点 | `custom`     |
+
+OzDDNS 可管理 IPv4 `A` 和 IPv6 `AAAA` 目标记录，具体能力取决于所选服务商。
+Cloudflare 记录支持代理状态。
+
+## 快速开始
+
+### 从源码构建
+
+环境要求：
+
+- Go 1.26 或更高版本
+
+- Node.js 22 或更高版本及 npm
+
+- GNU Make
+
+```bash
+git clone https://github.com/echoface/ozddns.git
+cd ozddns
+make build
+
+./bin/ozddns --db ./ozddns.db serve
+```
+
+打开 <http://127.0.0.1:9876>。
+
+如需使用示例服务商、任务和执行历史体验界面，可用全新数据库启动 Demo：
+
+```bash
+./bin/ozddns --db ./demo.db serve --demo
+```
+
+`make build` 会安装锁定版本的前端依赖、构建 Vue 面板、将其嵌入并生成
+`./bin/ozddns`。
+
+### Docker Compose
+
+```bash
+docker compose up -d --build
+```
+
+仓库内置的 Compose 配置会：
+
+- 将面板发布到 `127.0.0.1:9876`；
+
+- 将 SQLite 数据库存放在 `./data`；
+
+- 在容器内使用非 root 用户运行；
+
+- 提供 HTTP 健康检查。
+
+查看日志：
+
+```bash
+docker compose logs -f
+```
+
+## 首次配置
+
+管理面板是最短的配置路径：
+
+1. 添加并验证 DNS 服务商。
+2. 添加 IP 来源。
+3. 创建同步任务及 DNS 目标。
+4. 预演协调差异。
+5. 手动运行一次，然后保持调度器启用。
+6. 面板对回环地址之外开放前，先设置管理员密码。
+
+同样的流程也可以通过 CLI 完成：
+
+```bash
+./bin/ozddns --db ./ozddns.db provider add \
+  --type cloudflare \
+  --name "Home Cloudflare" \
+  --set api_token="$CF_API_TOKEN"
+
+./bin/ozddns --db ./ozddns.db source add \
+  --name "Public IPv4" \
+  --type http \
+  --family v4 \
+  --target https://api.ipify.org
+
+./bin/ozddns --db ./ozddns.db job add \
+  --name "Home IPv4" \
+  --provider "Home Cloudflare" \
+  --source "Public IPv4" \
+  --target home.example.com:A:300 \
+  --jitter
+
+./bin/ozddns --db ./ozddns.db job run --dry-run <job-id>
+./bin/ozddns --db ./ozddns.db job run <job-id>
+```
+
+使用 `ozddns --help` 或 `ozddns <command> --help` 查看完整 CLI 说明。
+支持机器可读输出的命令可在命令前添加 `--json`。
+
+## 配置备份
+
+导出和恢复服务商、IP 来源、任务及设置：
+
+```bash
+./bin/ozddns --db ./ozddns.db config export --out ozddns-config.json
+./bin/ozddns --db ./ozddns.db config import --replace ozddns-config.json
+```
+
+管理面板的 **设置 → 存储** 提供相同操作。执行历史不包含在配置包中。
+
+> 配置导出包含服务商凭据，以便恢复一个可工作的实例；面板密码哈希不会被导出。
+> 请按照敏感信息的标准保护导出文件。
+
+## 架构
+
+```text
+管理面板 ─┐
+REST API ─┼── 应用服务 ── 调度器 / 协调引擎
+CLI ──────┘       │               │
+                  ├── SQLite      ├── IP 来源
+                  └── 实例设置     └── DNS 服务商
+```
+
+主要目录：
+
+```text
+cmd/ozddns/          单二进制入口
+internal/app/        面板、API 和 CLI 共享的用例
+internal/engine/     调度器与协调差异计算
+internal/provider/   服务商协议与内置适配器
+internal/ipsource/   HTTP、网卡、命令和静态地址来源
+internal/storage/    存储接口与 SQLite 实现
+internal/server/     REST API 与 HTTP 中间件
+web/v2/              Vue 3、TypeScript 和 Vite 管理面板
+web/                 嵌入式生产资源
+```
+
+更多文档：
+
+- [设计与架构](docs/01-design.md)
+
+- [REST API 参考](docs/api_references.md)
+
+## 扩展服务商
+
+服务商适配器需要实现 `provider.Factory` 和 `provider.Provider`，然后在
+`internal/providers/all.go` 注册一个 Factory。服务商元数据描述配置字段，因此面板
+无需编写服务商专用 UI 即可渲染配置表单。
+
+协调引擎不依赖具体服务商：适配器负责验证凭据、列出区域与记录并应用变更；引擎负责
+获取地址、计算差异、调度和记录执行历史。
+
+最小的内置适配器示例见 `internal/provider/custom/custom.go`。
+
+## 安全说明
+
+- 默认监听地址为 `127.0.0.1:9876`。
+
+- 设置管理员密码后，HTTP Basic Auth 会自动启用。
+
+- 服务商密钥在常规 API、CLI 和面板读取时会被隐藏。
+
+- 服务商凭据会存储在 SQLite 数据库和配置导出中。请使用适合敏感信息的文件权限与
+  备份策略保护两者。
+
+- OzDDNS 本身不终止 TLS。向其他网络开放前，请使用可信反向代理提供 HTTPS。
+
+- 命令类型的 IP 来源会执行本地 Shell 命令，只应允许可信管理员配置。
+
+## 开发
+
+```bash
+make web-v2      # 仅构建管理面板
+make build       # 构建面板与单二进制
+make test        # 运行 Go 测试
+make test-race   # 使用竞态检测器运行测试
+make vet         # 运行 go vet
+make cover       # 生成 coverage.out
+make docker      # 构建容器镜像
+```
+
+前端开发：
+
+```bash
+cd web/v2
+npm ci
+npm run dev
+```
+
+生成的 `web/v2/dist` 会被有意提交到仓库，因为 `go:embed`、`go install`
+以及直接执行 Go 测试都需要仓库中存在可嵌入的面板资源。
+
+## 致谢
+
+OzDDNS 的设计参考了两个成熟 DDNS 项目的源码和实践：
+
+- [qdm12/ddns-updater](https://github.com/qdm12/ddns-updater) 展示了广泛的
+  服务商生态、周期性 DNS 协调、Web 界面和实用的容器交付方式。
+
+- [jeessy2/ddns-go](https://github.com/jeessy2/ddns-go) 展示了易用的嵌入式
+  管理面板、多种地址获取方式、Webhook 集成和直接的自托管部署体验。
+
+OzDDNS 是独立实现。项目采用了“地址发现与 DNS 更新分离”这一经过实践验证的思路，
+同时使用服务商注册表、规范化 SQLite 存储和共享差异引擎实现自己的架构。
+
+本项目也依赖并受益于以下开源项目：
+
+- [Go](https://go.dev/) 及其标准库；
+
+- [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)，后端使用的
+  无 CGo SQLite 驱动；
+
+- [Vue](https://vuejs.org/) 和
+  [Vue Router](https://router.vuejs.org/)，用于管理面板；
+
+- [Vite](https://vite.dev/) 和
+  [TypeScript](https://www.typescriptlang.org/)，用于前端开发与生产构建；
+
+- [SQLite](https://www.sqlite.org/)，用于可靠的本地持久化。
+
+感谢这些项目的维护者和贡献者。相关项目名称及商标归各自所有者所有。
+
+## 许可证
+
+本仓库当前未包含项目许可证。源码可见不代表已授予使用、修改或再分发权限。在将
+OzDDNS 作为开源版本发布前，需要先选择并添加许可证。
