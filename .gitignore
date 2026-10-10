@@ -4,7 +4,7 @@
 /web/v2/node_modules/
 /web/v2/*.tsbuildinfo
 /web/v2/node_modules/.tmp/
-ozddns
+/ozddns
 *.db
 *.db-shm
 *.db-wal
