@@ -107,20 +107,27 @@ docker run -d \
   --db /data/ozddns.db serve --listen 0.0.0.0:9876
 ```
 
-Use a version tag such as `ghcr.io/echoface/ozddns:1.0.0` when reproducible
+Use a version tag such as `ghcr.io/echoface/ozddns:1.1.0` when reproducible
 deployments are required.
 
 ### Docker Compose
 
 ```bash
-docker compose up -d --build
+docker compose up -d          # pulls ghcr.io/echoface/ozddns:latest
+docker compose up -d --build  # or build the same image locally
 ```
 
 The included Compose configuration:
 
+- runs the published image `ghcr.io/echoface/ozddns:latest`, or any tag you pass
+  as `OZDDNS_IMAGE` (e.g. `OZDDNS_IMAGE=ghcr.io/echoface/ozddns:1.1.0`);
+
 - publishes the panel on `127.0.0.1:9876`;
 
 - stores the SQLite database under `./data`;
+
+- writes a default `config.yaml` to the data volume on first start
+  (`./data/config.yaml`) that you can edit before the next restart;
 
 - runs the service as a non-root user inside the container;
 

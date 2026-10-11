@@ -5,10 +5,20 @@
 # The listen address is deployment config: it comes from OZDDNS_LISTEN (below),
 # the --listen flag, or config.yaml — not from the panel/database. If you change
 # the port, change OZDDNS_LISTEN and the ports mapping together.
+#
+# The image is the published multi-arch build. Pin a version for reproducible
+# deployments, e.g. OZDDNS_IMAGE=ghcr.io/echoface/ozddns:1.1.0 docker compose up -d
+# "docker compose up -d --build" builds the same image locally instead.
+#
+# On first start the container writes a default config.yaml to the data volume
+# (./data/config.yaml) that you can edit; it is read on the next restart.
 services:
   ozddns:
+    image: ${OZDDNS_IMAGE:-ghcr.io/echoface/ozddns:latest}
     build: .
-    image: ozddns:latest
+    # Prefer the published image when it is not present locally; use
+    # "docker compose up -d --build" to build from this checkout instead.
+    pull_policy: missing
     container_name: ozddns
     restart: unless-stopped
     ports:

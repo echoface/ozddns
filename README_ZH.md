@@ -100,19 +100,26 @@ docker run -d \
   --db /data/ozddns.db serve --listen 0.0.0.0:9876
 ```
 
-需要可复现部署时，请使用 `ghcr.io/echoface/ozddns:1.0.0` 这样的版本标签。
+需要可复现部署时，请使用 `ghcr.io/echoface/ozddns:1.1.0` 这样的版本标签。
 
 ### Docker Compose
 
 ```bash
-docker compose up -d --build
+docker compose up -d          # 拉取 ghcr.io/echoface/ozddns:latest
+docker compose up -d --build  # 或在本地构建同一镜像
 ```
 
 仓库内置的 Compose 配置会：
 
+- 运行已发布镜像 `ghcr.io/echoface/ozddns:latest`，也可用 `OZDDNS_IMAGE`
+  指定其他标签（例如 `OZDDNS_IMAGE=ghcr.io/echoface/ozddns:1.1.0`）；
+
 - 将面板发布到 `127.0.0.1:9876`；
 
 - 将 SQLite 数据库存放在 `./data`；
+
+- 首次启动时向数据卷写入默认 `config.yaml`（`./data/config.yaml`），
+  可在下次重启前编辑；
 
 - 在容器内使用非 root 用户运行；
 
