@@ -160,6 +160,7 @@ Set it with an optional `config.yaml` next to the binary:
 listen: 0.0.0.0:9876
 db: /data/ozddns.db
 logLevel: info
+basePath: /                # public prefix, e.g. /ddns behind a sub-path proxy
 ```
 
 The file is optional: if it is missing when `serve` starts, OzDDNS writes this
@@ -170,13 +171,40 @@ after the subcommand, as in `ozddns serve --config /etc/ozddns/config.yaml`.
 Every deployment setting follows the same precedence, so the more specific
 source always wins:
 
-- **`--listen` / `--db` / `--log-level` flags** (highest)
-- **environment variables** — `OZDDNS_LISTEN`, `OZDDNS_DB`, `OZDDNS_LOG_LEVEL`
+- **`--listen` / `--db` / `--log-level` / `--base-path` flags** (highest)
+- **environment variables** — `OZDDNS_LISTEN`, `OZDDNS_DB`, `OZDDNS_LOG_LEVEL`, `OZDDNS_BASE_PATH`
 - **`config.yaml`** — path taken from `--config` or `OZDDNS_CONFIG` (default `./config.yaml`)
 - **built-in defaults** — `127.0.0.1:9876`, `./ozddns.db`, `info` (lowest)
 
 `ozddns health` probes the running daemon's `/healthz` endpoint using the same
 resolution, so container and script health checks never guess a port.
+
+### Reverse proxy (nginx)
+
+OzDDNS does not terminate TLS. Run it behind nginx, leave the daemon bound to
+loopback, and terminate HTTPS at the proxy. The panel works either on a
+dedicated domain or under a sub-path of a shared one:
+
+| Topology | Public URL | Start-up setting |
+| --- | --- | --- |
+| Dedicated domain | `https://ddns.example.com/` | default |
+| Sub-path | `https://app.example.com/ddns/` | `--base-path /ddns` |
+
+The mount point is a start-up setting, so one image serves both — nothing is
+rebuilt per deployment:
+
+```bash
+ozddns serve --base-path /ddns      # or OZDDNS_BASE_PATH=/ddns, or basePath in config.yaml
+```
+
+The daemon strips the prefix itself, so the proxy forwards requests untouched
+and needs no rewriting. Copy-ready server blocks, the full walkthrough, and
+troubleshooting notes are in
+[Running OzDDNS behind nginx](docs/nginx.md):
+
+- [nginx/ozddns-dedicated-domain.conf](docs/nginx/ozddns-dedicated-domain.conf)
+
+- [nginx/ozddns-subpath.conf](docs/nginx/ozddns-subpath.conf)
 
 ## First configuration
 
@@ -262,6 +290,8 @@ More detail:
 - [Design and architecture](docs/01-design.md)
 
 - [REST API reference](docs/api_references.md)
+
+- [Running OzDDNS behind nginx](docs/nginx.md)
 
 ## Extending providers
 

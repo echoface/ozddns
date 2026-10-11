@@ -82,3 +82,46 @@ func TestWriteDefaultCreatesAndIsIdempotent(t *testing.T) {
 		t.Fatalf("existing file was overwritten: %+v", f)
 	}
 }
+
+func TestParseBasePath(t *testing.T) {
+	f, err := Parse([]byte("basePath: /ddns/\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if f.BasePath != "/ddns/" {
+		t.Fatalf("basePath = %q, want the raw value", f.BasePath)
+	}
+}
+
+func TestNormalizeBasePath(t *testing.T) {
+	ok := map[string]string{
+		"":         "/",
+		"/":        "/",
+		"  /  ":    "/",
+		"ddns":     "", // rejected: must be rooted
+		"/ddns":    "/ddns",
+		"/ddns/":   "/ddns",
+		"//ddns//": "/ddns",
+		"/a/b":     "/a/b",
+	}
+	for in, want := range ok {
+		got, err := NormalizeBasePath(in)
+		if want == "" {
+			if err == nil {
+				t.Errorf("NormalizeBasePath(%q) = %q, want an error", in, got)
+			}
+			continue
+		}
+		if err != nil || got != want {
+			t.Errorf("NormalizeBasePath(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+
+	// Anything that could break out of the <base href> attribute, the URL, or
+	// the path resolution is refused rather than escaped silently.
+	for _, bad := range []string{"/a b", `/a"b`, "/a<b", "/a\\b", "/a?b", "/a#b", "/a/../b", "/a/./b"} {
+		if got, err := NormalizeBasePath(bad); err == nil {
+			t.Errorf("NormalizeBasePath(%q) = %q, want an error", bad, got)
+		}
+	}
+}

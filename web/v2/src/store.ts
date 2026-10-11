@@ -3,7 +3,10 @@ import { useRouter } from "vue-router";
 import { applyTheme, setLocale, setTimeZone, t, themePreference } from "./lib";
 import type { AppData, IPSource, Job, ModalState, Provider, Run, Toast } from "./types";
 
-const base = "/api/v1";
+// The panel addresses its own origin's API. BASE_URL is relative in production
+// ("./"), so this resolves against the document's <base href> — the mount point
+// the daemon was started with — and against "/" in the dev server.
+const base = `${import.meta.env.BASE_URL}api/v1`;
 let auth = sessionStorage.getItem("ozddns.auth") || "";
 let toastSequence = 0;
 
@@ -156,6 +159,8 @@ function applyBootstrap(payload: any): void {
     dbDriver: status.dbDriver,
     listen: status.listen,
     listenSource: status.listenSource,
+    basePath: status.basePath,
+    basePathSource: status.basePathSource,
     goVersion: status.goVersion,
     goos: status.goos,
     goarch: status.goarch

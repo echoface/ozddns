@@ -15,6 +15,7 @@
 //	listen: 0.0.0.0:9876
 //	db: /data/ozddns.db
 //	logLevel: info
+//	basePath: /ddns
 package config
 
 import (
@@ -23,6 +24,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -35,6 +37,9 @@ type File struct {
 	DB string `json:"db"`
 	// LogLevel is one of debug | info | warn | error.
 	LogLevel string `json:"logLevel"`
+	// BasePath is the public prefix the panel and API are served under, so a
+	// reverse proxy can mount them at https://host/ddns/ without rebuilding.
+	BasePath string `json:"basePath"`
 }
 
 // DefaultTemplate is the annotated file written on first run, so a fresh
@@ -42,8 +47,8 @@ type File struct {
 const DefaultTemplate = `# OzDDNS deployment configuration.
 #
 # Read once at start-up. Each key is overridden by, in order:
-#   1. the matching command-line flag     (--listen / --db / --log-level)
-#   2. the environment variable           (OZDDNS_LISTEN / OZDDNS_DB / OZDDNS_LOG_LEVEL)
+#   1. the matching command-line flag     (--listen / --db / --log-level / --base-path)
+#   2. the environment variable           (OZDDNS_LISTEN / OZDDNS_DB / OZDDNS_LOG_LEVEL / OZDDNS_BASE_PATH)
 #   3. the value below
 #
 # These are deployment knobs only. Providers, tasks, IP sources and the rest of
@@ -51,11 +56,15 @@ const DefaultTemplate = `# OzDDNS deployment configuration.
 listen: 127.0.0.1:9876
 db: ./ozddns.db
 logLevel: info
+# Public prefix for a reverse proxy that mounts the panel under a sub-path,
+# e.g. https://app.example.com/ddns/ -> "/ddns". Leave "/" for a root mount or
+# a dedicated domain.
+basePath: /
 `
 
 // Default returns the built-in defaults.
 func Default() File {
-	return File{Listen: "127.0.0.1:9876", DB: "./ozddns.db", LogLevel: "info"}
+	return File{Listen: "127.0.0.1:9876", DB: "./ozddns.db", LogLevel: "info", BasePath: "/"}
 }
 
 // WriteDefault creates path with DefaultTemplate when it does not exist yet,
@@ -129,11 +138,42 @@ func Parse(data []byte) (*File, error) {
 			f.DB = value
 		case "loglevel", "log_level", "log-level":
 			f.LogLevel = value
+		case "basepath", "base_path", "base-path":
+			f.BasePath = value
 		default:
 			// Unknown keys are ignored for forward compatibility.
 		}
 	}
 	return &f, nil
+}
+
+// NormalizeBasePath validates a public mount prefix and returns its canonical
+// form: "/" for a root mount, otherwise a leading-slash path with no trailing
+// slash ("/ddns").
+//
+// The value reaches the panel as a <base href> in the served document, so it
+// accepts nothing that could break out of an attribute or the path: no
+// whitespace, quotes, angle brackets, backslashes, query or fragment markers,
+// and no "." or ".." segments.
+func NormalizeBasePath(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" || trimmed == "/" {
+		return "/", nil
+	}
+	if !strings.HasPrefix(trimmed, "/") {
+		return "", fmt.Errorf("base path %q must start with %q", value, "/")
+	}
+	if strings.ContainsAny(trimmed, " \t\r\n<>\"'`\\?#") {
+		return "", fmt.Errorf("base path %q must not contain spaces, quotes, angle brackets, backslashes, %q or %q", value, "?", "#")
+	}
+	for _, segment := range strings.Split(trimmed, "/") {
+		if segment == "." || segment == ".." {
+			return "", fmt.Errorf("base path %q must not contain %q or %q segments", value, ".", "..")
+		}
+	}
+	// Clean collapses repeated slashes and drops the trailing one; the ".." and
+	// quote checks above already rule out anything it could reinterpret.
+	return path.Clean(trimmed), nil
 }
 
 // unquote strips one layer of matching single or double quotes.

@@ -40,5 +40,7 @@ services:
     environment:
       OZDDNS_DB: /data/ozddns.db
       OZDDNS_LISTEN: 127.0.0.1:9876
+      # Mount the panel under a reverse-proxy sub-path (see docs/nginx.md):
+      # OZDDNS_BASE_PATH: /ddns
       TZ: Asia/Shanghai
     command: ["--db", "/data/ozddns.db", "serve"]

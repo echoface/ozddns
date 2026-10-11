@@ -148,6 +148,7 @@ docker compose logs -f
 listen: 0.0.0.0:9876
 db: /data/ozddns.db
 logLevel: info
+basePath: /                # 对外访问前缀，子路径反代时例如 /ddns
 ```
 
 该文件是可选的：`serve` 启动时若不存在，OzDDNS 会写入这份带注释的默认配置并继续运行
@@ -156,12 +157,36 @@ logLevel: info
 
 所有部署项遵循同一优先级，越具体的来源优先级越高：
 
-- **`--listen` / `--db` / `--log-level` 命令行参数**（最高）
-- **环境变量** —— `OZDDNS_LISTEN`、`OZDDNS_DB`、`OZDDNS_LOG_LEVEL`
+- **`--listen` / `--db` / `--log-level` / `--base-path` 命令行参数**（最高）
+- **环境变量** —— `OZDDNS_LISTEN`、`OZDDNS_DB`、`OZDDNS_LOG_LEVEL`、`OZDDNS_BASE_PATH`
 - **`config.yaml`** —— 路径由 `--config` 或 `OZDDNS_CONFIG` 指定（默认 `./config.yaml`）
 - **内置默认值** —— `127.0.0.1:9876`、`./ozddns.db`、`info`（最低）
 
 `ozddns health` 会按同一套优先级解析地址并探测 `/healthz`，容器与脚本健康检查无需硬编码端口。
+
+### 反向代理（nginx）
+
+OzDDNS 自身不处理 TLS。请把它放在 nginx 之后，让守护进程继续只监听回环地址，由代理终止
+HTTPS。面板既可以独占一个域名，也可以挂在共享域名的子路径下：
+
+| 部署方式 | 对外地址 | 启动参数 |
+| --- | --- | --- |
+| 独立域名 | `https://ddns.example.com/` | 默认值 |
+| 子路径 | `https://app.example.com/ddns/` | `--base-path /ddns` |
+
+挂载点属于启动参数，因此同一份镜像两种拓扑都能用，无需为部署重新构建：
+
+```bash
+ozddns serve --base-path /ddns      # 或用 OZDDNS_BASE_PATH=/ddns，或 config.yaml 中的 basePath
+```
+
+前缀由守护进程自己剥离，反向代理只需原样转发，不需要任何 rewrite；面板使用 hash 路由，
+不需要 history 模式的 `try_files` 回退。可直接复制的 server 配置、完整说明和排查清单见
+[在 nginx 后面运行 OzDDNS](docs/nginx.md)：
+
+- [nginx/ozddns-dedicated-domain.conf](docs/nginx/ozddns-dedicated-domain.conf)
+
+- [nginx/ozddns-subpath.conf](docs/nginx/ozddns-subpath.conf)
 
 ## 首次配置
 
@@ -245,6 +270,8 @@ web/                 嵌入式生产资源
 - [设计与架构](docs/01-design.md)
 
 - [REST API 参考](docs/api_references.md)
+
+- [在 nginx 后面运行 OzDDNS](docs/nginx.md)
 
 ## 扩展服务商
 

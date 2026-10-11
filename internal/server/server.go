@@ -15,10 +15,15 @@ import (
 
 // Server wires the HTTP API and the panel.
 type Server struct {
-	App   *app.App
-	Log   *slog.Logger
-	Panel http.Handler
-	mux   *http.ServeMux
+	App *app.App
+	Log *slog.Logger
+	// BasePath is the public prefix the panel and API are served under ("/" for
+	// a root mount). It is deployment configuration, resolved by the CLI, and
+	// lets a reverse proxy mount OzDDNS at a sub-path without any rewriting on
+	// the proxy side. See basePath below.
+	BasePath string
+	Panel    http.Handler
+	mux      *http.ServeMux
 }
 
 // New builds a server. panel may be nil to disable the UI.
@@ -26,14 +31,49 @@ func New(a *app.App, panel http.Handler, log *slog.Logger) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
-	s := &Server{App: a, Log: log, Panel: panel, mux: http.NewServeMux()}
+	s := &Server{App: a, Log: log, Panel: panel, BasePath: "/", mux: http.NewServeMux()}
 	s.routes()
 	return s
 }
 
 // Handler returns the fully-wrapped handler.
 func (s *Server) Handler() http.Handler {
-	return s.recoverer(s.logger(s.auth(s.mux)))
+	return s.recoverer(s.basePath(s.logger(s.auth(s.mux))))
+}
+
+// basePath makes the daemon own its public prefix instead of pushing that job
+// onto the reverse proxy. The proxy can then forward requests untouched
+// (`location /ddns { proxy_pass http://127.0.0.1:9876; }`) and does not need a
+// prefix-stripping rewrite that is easy to get subtly wrong.
+//
+// Requests carrying the prefix are normalized before routing; everything else
+// passes through unchanged, so the root mount, a stripped proxy, and the
+// unauthenticated liveness probe at /healthz all keep working.
+func (s *Server) basePath(next http.Handler) http.Handler {
+	prefix := strings.TrimSuffix(s.BasePath, "/")
+	if prefix == "" {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == prefix:
+			// Canonicalize the mount point so relative URLs have a directory to
+			// resolve against.
+			target := prefix + "/"
+			if r.URL.RawQuery != "" {
+				target += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, target, http.StatusMovedPermanently)
+		case strings.HasPrefix(r.URL.Path, prefix+"/"):
+			stripped := r.Clone(r.Context())
+			stripped.URL.Path = strings.TrimPrefix(r.URL.Path, prefix)
+			// Path is authoritative again; a stale RawPath would re-encode it.
+			stripped.URL.RawPath = ""
+			next.ServeHTTP(w, stripped)
+		default:
+			next.ServeHTTP(w, r)
+		}
+	})
 }
 
 func (s *Server) routes() {

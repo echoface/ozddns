@@ -1250,6 +1250,10 @@ Namecheap DDNS 适配器为只写且仅处理 IPv4；AAAA 变更不会写入。
 
 ### 11.3 JavaScript 请求封装
 
+如果通过反向代理把面板挂在子路径下（`--base-path /ddns`），API 也会随之位于该前缀之后，
+即 `https://主机/ddns/api/v1`；面板内部会自动使用相对路径，手写客户端需要自行带上前缀。
+详见 [在 nginx 后面运行 OzDDNS](nginx.md)。
+
 ```js
 const baseURL = "http://127.0.0.1:9876/api/v1";
 const auth = btoa(`${username}:${password}`);

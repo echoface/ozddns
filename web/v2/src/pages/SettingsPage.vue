@@ -44,17 +44,20 @@ const importInput = ref<HTMLInputElement | null>(null);
 const tabsElement = ref<HTMLElement | null>(null);
 const testingId = ref("");
 
-// Where the bind address came from: start-up flag, environment variable,
-// config.yaml, or the built-in default. Shown so the address is never a mystery.
-const listenSourceLabel = computed(() => {
+// Where a deployment setting came from: start-up flag, environment variable,
+// config.yaml, or the built-in default. Shown so neither the bind address nor
+// the public path is ever a mystery.
+function sourceLabel(source: string): string {
   const labels: Record<string, string> = {
     flag: t("start-up flag"),
     env: t("environment variable"),
     config: t("config.yaml"),
     default: t("built-in default")
   };
-  return labels[data.runtime.listenSource] || t("built-in default");
-});
+  return labels[source] || t("built-in default");
+}
+const listenSourceLabel = computed(() => sourceLabel(data.runtime.listenSource));
+const basePathSourceLabel = computed(() => sourceLabel(data.runtime.basePathSource));
 
 watch(tab, async (value) => {
   await nextTick();
@@ -248,6 +251,14 @@ async function copy(value: string): Promise<void> {
           <Pill kind="mute">{{ listenSourceLabel }}</Pill>
         </div>
         <span class="help">{{ t("Fixed at start-up — it is deployment configuration, not a panel setting. To change it, set --listen, the OZDDNS_LISTEN environment variable, or the listen key in config.yaml, then restart OzDDNS.") }}</span>
+      </div>
+      <div class="field">
+        <label>{{ t("Base path") }} <span class="tiny muted">· {{ t("Read-only") }}</span></label>
+        <div class="hstack wrap" style="gap:8px">
+          <input class="input mono" :value="data.runtime.basePath || '/'" readonly type="text" aria-readonly="true" :aria-label="t('Base path')">
+          <Pill kind="mute">{{ basePathSourceLabel }}</Pill>
+        </div>
+        <span class="help">{{ t("Public prefix the panel and API are served under, so a reverse proxy can mount them at a sub-path without rebuilding anything. To change it, set --base-path, the OZDDNS_BASE_PATH environment variable, or the basePath key in config.yaml, then restart OzDDNS.") }}</span>
       </div>
       <div class="callout mb16" v-html="t('Loopback by default. {c} is only reachable from this host. Bind {zero} to expose the panel — pair it with authentication.', { c: '<code>127.0.0.1:9876</code>', zero: '<code>0.0.0.0</code>' })" />
     </div>

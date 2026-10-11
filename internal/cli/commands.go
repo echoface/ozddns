@@ -108,6 +108,7 @@ func (e *env) cmdStatus(args []string) int {
 		fmt.Fprintf(w, "Runs\tsuccess %d · no-change %d · failed %d · skipped %d\n",
 			st.RunsSuccess, st.RunsNoChange, st.RunsFailed, st.RunsSkipped)
 		fmt.Fprintf(w, "Listen\t%s (%s)\n", st.Listen, st.ListenSource)
+		fmt.Fprintf(w, "Base path\t%s (%s)\n", st.BasePath, st.BasePathSource)
 		fmt.Fprintf(w, "Database\t%s · %s\n", st.DBDriver, st.DBPath)
 		return flush(w, e)
 	})

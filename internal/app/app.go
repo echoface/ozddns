@@ -32,6 +32,12 @@ type App struct {
 	// the bind address is deployment config and is never stored in the database.
 	ListenAddr   string
 	ListenSource string
+	// BasePath/BasePathSource are the resolved public prefix the panel and API
+	// are served under, and where it came from. Like the bind address it is
+	// deployment configuration, set by the CLI at start-up, never stored in the
+	// database or edited from the panel.
+	BasePath       string
+	BasePathSource string
 
 	healthMu sync.RWMutex
 	health   map[string]providerHealth

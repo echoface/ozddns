@@ -42,7 +42,8 @@ Global flags (before the command):
 
 Deployment settings are resolved with one precedence everywhere:
   flag > environment > config.yaml > built-in default.
-  --listen / OZDDNS_LISTEN and --db / OZDDNS_DB work the same way as in serve.
+  --listen / OZDDNS_LISTEN, --db / OZDDNS_DB and --base-path / OZDDNS_BASE_PATH
+  work the same way as in serve.
   A missing config file is written with defaults the first time serve runs.
 
 Run "ozddns <command> -h" for command-specific flags.`
@@ -151,6 +152,7 @@ func (e *env) parseGlobal(args []string) ([]string, error) {
 const (
 	defaultDBPath     = "./ozddns.db"
 	defaultListenAddr = "127.0.0.1:9876"
+	defaultBasePath   = "/"
 	defaultConfigPath = "./config.yaml"
 )
 
@@ -204,6 +206,27 @@ func (e *env) resolveListen(flagValue string) (addr, source string) {
 	return defaultListenAddr, "default"
 }
 
+// resolveBasePath applies the same precedence to the public mount prefix, and
+// validates it so a typo fails at start-up rather than producing a panel that
+// silently serves the wrong URLs.
+func (e *env) resolveBasePath(flagValue string) (basePath, source string, err error) {
+	raw, source := flagValue, "flag"
+	if raw == "" {
+		raw, source = os.Getenv("OZDDNS_BASE_PATH"), "env"
+	}
+	if raw == "" && e.cfg != nil {
+		raw, source = e.cfg.BasePath, "config"
+	}
+	if raw == "" {
+		raw, source = defaultBasePath, "default"
+	}
+	normalized, err := config.NormalizeBasePath(raw)
+	if err != nil {
+		return "", "", err
+	}
+	return normalized, source, nil
+}
+
 // resolveLogLevel applies the same precedence to the log level.
 func (e *env) resolveLogLevel(flagValue string) string {
 	if flagValue != "" {
@@ -227,6 +250,9 @@ func (e *env) withApp(fn func(context.Context, *app.App) int) int {
 	}
 	defer closeFn()
 	a.ListenAddr, a.ListenSource = e.resolveListen("")
+	if base, source, err := e.resolveBasePath(""); err == nil {
+		a.BasePath, a.BasePathSource = base, source
+	}
 	return fn(context.Background(), a)
 }
 

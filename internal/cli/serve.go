@@ -24,6 +24,7 @@ func (e *env) cmdServe(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(e.err)
 	listen := fs.String("listen", "", "address to listen on (overrides OZDDNS_LISTEN and config.yaml)")
+	basePath := fs.String("base-path", "", "public prefix when mounted behind a reverse proxy sub-path, e.g. /ddns (overrides OZDDNS_BASE_PATH and config.yaml)")
 	configPath := fs.String("config", "", "path to config.yaml (overrides OZDDNS_CONFIG)")
 	demo := fs.Bool("demo", false, "seed the demo dataset on first run")
 	noScheduler := fs.Bool("no-scheduler", false, "start with scheduling paused")
@@ -39,6 +40,18 @@ func (e *env) cmdServe(args []string) int {
 			fmt.Fprintln(e.err, "error:", err)
 			return 2
 		}
+	}
+
+	// Validate the public prefix before anything touches the filesystem or the
+	// database, so a typo fails immediately instead of after a config file has
+	// been written. The value is deployment configuration: one build serves a
+	// root mount and any sub-path, decided here at start-up. The daemon strips
+	// the prefix from incoming requests and tells the panel about it, so the
+	// reverse proxy can forward everything untouched.
+	base, baseSource, err := e.resolveBasePath(*basePath)
+	if err != nil {
+		fmt.Fprintln(e.err, "error:", err)
+		return 2
 	}
 
 	level := slog.LevelInfo
@@ -82,6 +95,9 @@ func (e *env) cmdServe(args []string) int {
 	a.ListenAddr = addr
 	a.ListenSource = source
 
+	a.BasePath = base
+	a.BasePathSource = baseSource
+
 	if !*noScheduler {
 		a.Start(ctx)
 	} else {
@@ -89,14 +105,15 @@ func (e *env) cmdServe(args []string) int {
 		a.Start(ctx)
 	}
 
-	srv := server.New(a, web.Handler(), logger)
+	srv := server.New(a, web.Handler(base), logger)
+	srv.BasePath = base
 	httpSrv := &http.Server{
 		Addr:              addr,
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	fmt.Fprintf(e.out, "OzDDNS %s — panel on http://%s/  (db: %s)\n", version.Version, addr, e.dbPath)
+	fmt.Fprintf(e.out, "OzDDNS %s — panel on http://%s%s/  (db: %s)\n", version.Version, addr, strings.TrimSuffix(base, "/"), e.dbPath)
 	if !strings.HasPrefix(addr, "127.") && !strings.HasPrefix(addr, "localhost") && !strings.HasPrefix(addr, "[::1]") {
 		logger.Warn("listening on a non-loopback address; make sure a password is set", "addr", addr)
 	}

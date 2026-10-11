@@ -1,8 +1,8 @@
 # OzDDNS deployment configuration.
 #
 # Read once at start-up. Each key is overridden by, in order:
-#   1. the matching command-line flag     (--listen / --db / --log-level)
-#   2. the environment variable           (OZDDNS_LISTEN / OZDDNS_DB / OZDDNS_LOG_LEVEL)
+#   1. the matching command-line flag     (--listen / --db / --log-level / --base-path)
+#   2. the environment variable           (OZDDNS_LISTEN / OZDDNS_DB / OZDDNS_LOG_LEVEL / OZDDNS_BASE_PATH)
 #   3. the value below
 #
 # These are deployment knobs only. Providers, tasks, IP sources and the rest of
@@ -10,3 +10,7 @@
 listen: 127.0.0.1:9876
 db: ./ozddns.db
 logLevel: info
+# Public prefix for a reverse proxy that mounts the panel under a sub-path,
+# e.g. https://app.example.com/ddns/ -> "/ddns". Leave "/" for a root mount or
+# a dedicated domain.
+basePath: /
