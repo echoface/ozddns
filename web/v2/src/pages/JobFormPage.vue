@@ -6,7 +6,7 @@ import TargetPicker from "../components/TargetPicker.vue";
 import { Banner, Pill, Toggle } from "../components/UiKit";
 import { defaultTarget, targetPlaceholder, targetPresets } from "../ipsourceTargets";
 import { splitDomains, t } from "../lib";
-import { api, bootState, data, fail, getJob, getSource, notify, refresh } from "../store";
+import { api, bootState, data, fail, getJob, getProviderType, getSource, notify, refresh } from "../store";
 
 const route = useRoute();
 const router = useRouter();
@@ -24,6 +24,7 @@ const form = reactive({
   sourceTarget: "https://api.ipify.org",
   interval: Number(data.settings?.general?.defaultInterval) || 5,
   jitter: true,
+  proxied: false,
   advanced: false
 });
 
@@ -39,18 +40,31 @@ watch(original, (job) => {
   form.sourceTarget = source?.target || "";
   form.interval = job.intervalMinutes || 5;
   form.jitter = !!job.jitter;
+  form.proxied = !!job.targets[0]?.proxied;
 }, { immediate: true });
 
 const pickedSource = computed(() => form.sourcePickId ? getSource(form.sourcePickId) : undefined);
 const recordType = computed(() => form.family === "v6" ? "AAAA" : "A");
 const domains = computed(() => splitDomains(form.domains));
 const enabledProviders = computed(() => data.providers.filter((provider) => provider.enabled));
+const selectedProvider = computed(() => data.providers.find((provider) => provider.id === form.providerId));
+const selectedProviderType = computed(() => selectedProvider.value ? getProviderType(selectedProvider.value.type) : undefined);
+const supportsProxied = computed(() => !!selectedProviderType.value?.supportsProxied);
 const sourceUsers = computed(() => pickedSource.value ? data.jobs.filter((job) => job.ipSourceId === pickedSource.value?.id).length : 0);
 const sourceTargetPresets = computed(() => targetPresets(form.sourceType || "http", form.family || "v4", data.interfaces));
 const sourceTargetPlaceholder = computed(() => targetPlaceholder(form.sourceType || "http", form.family || "v4"));
 
 watch(pickedSource, (source) => {
   if (source) form.family = source.family;
+});
+
+// Seed the orange-cloud default from the provider config when creating a task,
+// but never overwrite the value an existing task already uses.
+watch(() => form.providerId, (id) => {
+  if (editing.value) return;
+  const provider = data.providers.find((item) => item.id === id);
+  const type = provider ? getProviderType(provider.type) : undefined;
+  form.proxied = !!(type?.supportsProxied && provider?.config?.proxied);
 });
 
 // Switching kind makes the previous target meaningless, so seed the new default.
@@ -85,7 +99,7 @@ async function save(): Promise<void> {
       domain,
       type: (family === "v6" ? "AAAA" : "A") as "AAAA" | "A",
       ttl: 300,
-      proxied: false,
+      proxied: supportsProxied.value ? form.proxied : false,
       comment: ""
     }));
   const name = form.name || domains.value[0];
@@ -193,6 +207,14 @@ async function save(): Promise<void> {
     </div>
 
     <div class="field"><label>{{ t("Domains") }} <span class="req">*</span></label><textarea v-model="form.domains" class="input mono" rows="4" :placeholder="`${t('One domain per line, e.g.')}\nhome.example.com\nnas.example.com`" /><span class="help">{{ t("One domain per line. Each becomes a {type} record.", { type: recordType }) }}<template v-if="domains.length"> · {{ t("{n} record(s)", { n: domains.length }) }}</template></span></div>
+
+    <div v-if="supportsProxied" class="switch-row">
+      <div class="txt">
+        <div class="t">{{ t("Proxy through Cloudflare (orange cloud)") }}</div>
+        <div class="d">{{ t("Proxied") }} · {{ t("Toggle orange-cloud proxying per record") }}</div>
+      </div>
+      <Toggle v-model="form.proxied" :label="t('Proxy through Cloudflare (orange cloud)')" />
+    </div>
 
     <button type="button" class="btn sm mt16" @click="form.advanced = !form.advanced"><Icon :name="form.advanced ? 'chevron-down' : 'chevron-right'" />{{ t("Advanced options") }}</button>
     <template v-if="form.advanced">

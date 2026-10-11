@@ -41,9 +41,12 @@ func (a *App) PatchSettings(ctx context.Context, in SettingsInput) (domain.Setti
 	if in.Theme != nil && *in.Theme != "" {
 		s.Theme = *in.Theme
 	}
-	if in.Timezone != nil && *in.Timezone != "" {
-		if _, err := time.LoadLocation(*in.Timezone); err != nil {
-			return domain.Settings{}, fmt.Errorf("invalid timezone %q", *in.Timezone)
+	// An explicit empty string clears the override and follows the browser again.
+	if in.Timezone != nil {
+		if *in.Timezone != "" {
+			if _, err := time.LoadLocation(*in.Timezone); err != nil {
+				return domain.Settings{}, fmt.Errorf("invalid timezone %q", *in.Timezone)
+			}
 		}
 		s.Timezone = *in.Timezone
 	}

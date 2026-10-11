@@ -155,6 +155,53 @@ func TestReconcileProxiedChange(t *testing.T) {
 	}
 }
 
+// REC-06: a run reports one detail per record so the panel can show which
+// records changed and which did not.
+func TestReconcileReportsPerRecordDetails(t *testing.T) {
+	r, _ := setup("cf", map[string][]domain.Record{
+		"a.example.com": {{ID: "ra", Name: "a.example.com", Type: domain.RecordA, Content: "203.0.113.42"}},
+		"b.example.com": {{ID: "rb", Name: "b.example.com", Type: domain.RecordA, Content: "198.51.100.7"}},
+	}, "203.0.113.42", nil)
+	res, err := r.Reconcile(context.Background(), job("t",
+		domain.Target{Domain: "a.example.com", Type: domain.RecordA},
+		domain.Target{Domain: "b.example.com", Type: domain.RecordA}), prov("cf"), src())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Details) != 2 {
+		t.Fatalf("details = %+v", res.Details)
+	}
+	if res.Details[0].Action != domain.RunActionUnchanged || res.Details[1].Action != domain.RunActionUpdated {
+		t.Fatalf("actions = %q, %q", res.Details[0].Action, res.Details[1].Action)
+	}
+	if res.Details[1].Current != "198.51.100.7" || res.Details[1].Desired != "203.0.113.42" {
+		t.Fatalf("detail = %+v", res.Details[1])
+	}
+}
+
+// REC-07: skipped and failed records are also described in the details.
+func TestReconcileDetailsForSkipAndFailure(t *testing.T) {
+	// No address for the family => skipped detail.
+	r, _ := setup("cf", nil, "", errors.New("no v6 address"))
+	res, _ := r.Reconcile(context.Background(), job("t", domain.Target{Domain: "v6.example.com", Type: domain.RecordAAAA}),
+		prov("cf"), src())
+	if len(res.Details) != 1 || res.Details[0].Action != domain.RunActionSkipped {
+		t.Fatalf("details = %+v", res.Details)
+	}
+
+	// Provider rejects the write => failed detail.
+	r2, fp2 := setup("cf", nil, "203.0.113.42", nil)
+	fp2.applyErr = errors.New("write rejected")
+	res2, err := r2.Reconcile(context.Background(), job("t", domain.Target{Domain: "new.example.com", Type: domain.RecordA}),
+		prov("cf"), src())
+	if err == nil {
+		t.Fatal("expected an error from the failed write")
+	}
+	if len(res2.Details) != 1 || res2.Details[0].Action != domain.RunActionFailed {
+		t.Fatalf("details = %+v", res2.Details)
+	}
+}
+
 // REC-10: no address available => skipped (not failed), and no write.
 func TestReconcileSkipWhenNoAddress(t *testing.T) {
 	r, fp := setup("cf", nil, "", errors.New("no v6 address"))

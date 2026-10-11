@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import Icon from "../components/Icon.vue";
+import RunRecords from "../components/RunRecords.vue";
 import { DiffValue, EmptyState, StatusPill } from "../components/UiKit";
 import { fmtDateTime, fmtDur, t } from "../lib";
 import { data, getJob, modal, runFilter } from "../store";
@@ -58,15 +59,15 @@ const windowLabel = computed(() => days.value === 1 ? t("last 24 hours") : t("la
     </div>
     <div class="table-wrap">
       <table class="table clickable exec-table">
-        <thead><tr><th>{{ t("Time") }}</th><th>{{ t("Task") }}</th><th class="col-trigger">{{ t("Trigger") }}</th><th>{{ t("Change") }}</th><th class="col-duration">{{ t("Duration") }}</th><th>{{ t("Result") }}</th><th>{{ t("Detail") }}</th></tr></thead>
+        <thead><tr><th>{{ t("Time") }}</th><th>{{ t("Task") }}</th><th class="col-trigger">{{ t("Trigger") }}</th><th>{{ t("Change") }}</th><th>{{ t("Records") }}</th><th class="col-duration">{{ t("Duration") }}</th><th>{{ t("Detail") }}</th></tr></thead>
         <tbody>
           <tr v-for="run in list" :key="run.id" tabindex="0" @click="modal = { type: 'run', run }" @keydown.enter="modal = { type: 'run', run }">
-            <td class="mono tiny" style="white-space:nowrap">{{ fmtDateTime(run.startedAt) }}</td>
+            <td class="mono tiny nowrap">{{ fmtDateTime(run.startedAt) }}</td>
             <td><span class="row-title">{{ getJob(run.jobId)?.name || run.jobId }}</span></td>
             <td class="col-trigger"><span class="pill" :class="run.trigger === 'manual' ? 'info' : 'mute'">{{ t(run.trigger) }}</span></td>
             <td><DiffValue v-if="run.oldIp || run.newIp" :old-value="run.oldIp || ''" :new-value="run.newIp || ''" /><span v-else class="muted tiny">—</span></td>
+            <td><RunRecords v-if="run.details?.length" :details="run.details" summary /><StatusPill v-else :status="run.status" /></td>
             <td class="mono tiny col-duration">{{ fmtDur(run.durationMs) }}</td>
-            <td><StatusPill :status="run.status" /></td>
             <td class="muted"><span class="cell-detail tiny" :title="run.message">{{ run.message }}</span></td>
           </tr>
           <tr v-if="!list.length"><td colspan="7"><EmptyState icon="filter" title="No runs match" body="Adjust the filters above to see executions." /></td></tr>

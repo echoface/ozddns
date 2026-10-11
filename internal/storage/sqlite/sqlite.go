@@ -134,7 +134,40 @@ func (d *DB) migrate(ctx context.Context) error {
 			return fmt.Errorf("migration %d: %w", i+1, err)
 		}
 	}
+	// Columns added after the first release. ensureColumn is a no-op when the
+	// column already exists, so this stays idempotent across restarts.
+	if err := d.ensureColumn(ctx, "sync_runs", "details_json", "TEXT"); err != nil {
+		return fmt.Errorf("migration: sync_runs.details_json: %w", err)
+	}
 	return nil
+}
+
+// ensureColumn adds a column if the table does not already have it. SQLite has
+// no "ADD COLUMN IF NOT EXISTS", so we inspect the schema first.
+func (d *DB) ensureColumn(ctx context.Context, table, column, typ string) error {
+	rows, err := d.db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			cid, notNull, pk int
+			name, colType    string
+			defaultValue     sql.NullString
+		)
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = d.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, typ))
+	return err
 }
 
 // ---------------------------------------------------------------------------
@@ -416,11 +449,15 @@ func scanJob(s scanner) (domain.Job, error) {
 type runRepo struct{ d *DB }
 
 func (r runRepo) Insert(ctx context.Context, run domain.Run) (int64, error) {
+	details, err := marshalRunDetails(run.Details)
+	if err != nil {
+		return 0, err
+	}
 	res, err := r.d.db.ExecContext(ctx,
-		`INSERT INTO sync_runs (job_id,started_at,finished_at,duration_ms,status,old_ip,new_ip,trigger,message,records)
-		 VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO sync_runs (job_id,started_at,finished_at,duration_ms,status,old_ip,new_ip,trigger,message,records,details_json)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 		run.JobID, toMillis(run.StartedAt), toMillis(run.FinishedAt), run.DurationMS,
-		string(run.Status), run.OldIP, run.NewIP, string(run.Trigger), run.Message, run.Records)
+		string(run.Status), run.OldIP, run.NewIP, string(run.Trigger), run.Message, run.Records, details)
 	if err != nil {
 		return 0, err
 	}
@@ -428,7 +465,7 @@ func (r runRepo) Insert(ctx context.Context, run domain.Run) (int64, error) {
 }
 
 func (r runRepo) Get(ctx context.Context, id int64) (domain.Run, error) {
-	row := r.d.db.QueryRowContext(ctx, `SELECT id,job_id,started_at,finished_at,duration_ms,status,old_ip,new_ip,trigger,message,records FROM sync_runs WHERE id=?`, id)
+	row := r.d.db.QueryRowContext(ctx, `SELECT id,job_id,started_at,finished_at,duration_ms,status,old_ip,new_ip,trigger,message,records,details_json FROM sync_runs WHERE id=?`, id)
 	run, err := scanRun(row)
 	if err == sql.ErrNoRows {
 		return domain.Run{}, storage.ErrNotFound
@@ -437,7 +474,7 @@ func (r runRepo) Get(ctx context.Context, id int64) (domain.Run, error) {
 }
 
 func (r runRepo) List(ctx context.Context, f storage.RunFilter) ([]domain.Run, error) {
-	q := `SELECT id,job_id,started_at,finished_at,duration_ms,status,old_ip,new_ip,trigger,message,records FROM sync_runs`
+	q := `SELECT id,job_id,started_at,finished_at,duration_ms,status,old_ip,new_ip,trigger,message,records,details_json FROM sync_runs`
 	var where []string
 	var args []any
 	if f.JobID != "" {
@@ -491,8 +528,8 @@ func scanRun(s scanner) (domain.Run, error) {
 	var run domain.Run
 	var started, finished int64
 	var status, trigger string
-	var oldIP, newIP, message sql.NullString
-	if err := s.Scan(&run.ID, &run.JobID, &started, &finished, &run.DurationMS, &status, &oldIP, &newIP, &trigger, &message, &run.Records); err != nil {
+	var oldIP, newIP, message, details sql.NullString
+	if err := s.Scan(&run.ID, &run.JobID, &started, &finished, &run.DurationMS, &status, &oldIP, &newIP, &trigger, &message, &run.Records, &details); err != nil {
 		return domain.Run{}, err
 	}
 	run.StartedAt = fromMillis(started)
@@ -502,7 +539,25 @@ func scanRun(s scanner) (domain.Run, error) {
 	run.OldIP = oldIP.String
 	run.NewIP = newIP.String
 	run.Message = message.String
+	if details.Valid && details.String != "" {
+		if err := json.Unmarshal([]byte(details.String), &run.Details); err != nil {
+			return domain.Run{}, err
+		}
+	}
 	return run, nil
+}
+
+// marshalRunDetails encodes the per-record outcome as a JSON blob, or NULL when
+// there is nothing to store.
+func marshalRunDetails(details []domain.RunDetail) (any, error) {
+	if len(details) == 0 {
+		return nil, nil
+	}
+	b, err := json.Marshal(details)
+	if err != nil {
+		return nil, err
+	}
+	return string(b), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -602,7 +657,10 @@ func (r settingsRepo) Save(ctx context.Context, s domain.Settings) error {
 
 func defaultSettings() domain.Settings {
 	return domain.Settings{
-		Language: "en", Theme: "light", Timezone: "UTC", DefaultInterval: 5,
+		// An empty timezone means "follow the browser's zone" in the panel; the
+		// server never needs a zone of its own, so this is the friendlier default
+		// than a hard-coded UTC.
+		Language: "en", Theme: "light", Timezone: "", DefaultInterval: 5,
 		SchedulerTickSeconds: 5, SchedulerWorkers: 4, RunOnStart: true,
 	}
 }
@@ -630,8 +688,11 @@ func applySettingsDefaults(s *domain.Settings, raw string) {
 	if s.Theme == "" {
 		s.Theme = "light"
 	}
-	if s.Timezone == "" {
-		s.Timezone = "UTC"
+	// "UTC" was the implicit default before the panel started following the
+	// browser's zone, and it is what older saves persisted without the user ever
+	// choosing it. Treat it as "not set" so those installs show local time too.
+	if s.Timezone == "UTC" {
+		s.Timezone = ""
 	}
 }
 

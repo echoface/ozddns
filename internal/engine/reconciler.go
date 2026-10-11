@@ -20,7 +20,8 @@ type Result struct {
 	OldIP   string
 	NewIP   string
 	Message string
-	Records int // number of records created or updated
+	Records int                // number of records created or updated
+	Details []domain.RunDetail // per-record outcome, in target order
 }
 
 // Reconciler diffs desired DNS state against actual and writes only what drifted.
@@ -67,7 +68,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, job domain.Job, prov domain.
 		addr, ok := addrs[fam]
 		if !ok {
 			skipped++
-			messages = append(messages, fmt.Sprintf("no %s address for %s", fam, t.Domain))
+			note := fmt.Sprintf("no %s address for %s", fam, t.Domain)
+			messages = append(messages, note)
+			res.Details = append(res.Details, domain.RunDetail{
+				Domain: t.Domain, Type: t.Type, Action: domain.RunActionSkipped, Note: note,
+			})
 			continue
 		}
 		desired := addr.String()
@@ -79,6 +84,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, job domain.Job, prov domain.
 		if err != nil {
 			res.Status = domain.StatusFailed
 			res.Message = err.Error()
+			res.Details = append(res.Details, domain.RunDetail{
+				Domain: t.Domain, Type: t.Type, Action: domain.RunActionFailed, Desired: desired, Note: err.Error(),
+			})
 			return res, err
 		}
 		if len(existing) > 0 && res.OldIP == "" {
@@ -92,9 +100,15 @@ func (r *Reconciler) Reconcile(ctx context.Context, job domain.Job, prov domain.
 			if err := adapter.Apply(ctx, domain.Change{Kind: domain.ChangeCreate, Record: rec}); err != nil {
 				res.Status = domain.StatusFailed
 				res.Message = err.Error()
+				res.Details = append(res.Details, domain.RunDetail{
+					Domain: t.Domain, Type: t.Type, Action: domain.RunActionFailed, Desired: desired, Proxied: t.Proxied, Note: err.Error(),
+				})
 				return res, err
 			}
 			changed++
+			res.Details = append(res.Details, domain.RunDetail{
+				Domain: t.Domain, Type: t.Type, Action: domain.RunActionCreated, Desired: desired, Proxied: t.Proxied,
+			})
 			continue
 		}
 
@@ -103,6 +117,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, job domain.Job, prov domain.
 		ipChanged := !sameAddr(cur.Content, desired)
 		proxiedChanged := prov.Type == "cloudflare" && cur.Proxied != t.Proxied
 		if !ipChanged && !proxiedChanged {
+			res.Details = append(res.Details, domain.RunDetail{
+				Domain: t.Domain, Type: t.Type, Action: domain.RunActionUnchanged,
+				Current: cur.Content, Desired: desired, Proxied: t.Proxied,
+			})
 			continue
 		}
 		upd := rec
@@ -110,9 +128,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, job domain.Job, prov domain.
 		if err := adapter.Apply(ctx, domain.Change{Kind: domain.ChangeUpdate, Record: upd}); err != nil {
 			res.Status = domain.StatusFailed
 			res.Message = err.Error()
+			res.Details = append(res.Details, domain.RunDetail{
+				Domain: t.Domain, Type: t.Type, Action: domain.RunActionFailed,
+				Current: cur.Content, Desired: desired, Proxied: t.Proxied, Note: err.Error(),
+			})
 			return res, err
 		}
 		changed++
+		res.Details = append(res.Details, domain.RunDetail{
+			Domain: t.Domain, Type: t.Type, Action: domain.RunActionUpdated,
+			Current: cur.Content, Desired: desired, Proxied: t.Proxied,
+		})
 	}
 
 	res.Records = changed

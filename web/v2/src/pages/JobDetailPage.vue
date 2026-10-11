@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "../components/Icon.vue";
+import RunRecords from "../components/RunRecords.vue";
 import { Banner, DiffValue, EmptyState, Pill, StatusPill, Toggle } from "../components/UiKit";
 import { fmtAgo, fmtDateTime, fmtDur, fmtIn, t } from "../lib";
 import {
@@ -103,11 +104,10 @@ function remove(): void {
       <div class="card mb16 table-card-scroll">
         <div class="card-head"><span class="h">{{ t("Reconciliation") }}</span><span class="spacer" /><Pill :kind="job.lastStatus === 'failed' ? 'err' : 'ok'" dot>{{ t(job.lastStatus === "failed" ? "Out of sync" : "In sync") }}</Pill></div>
         <table class="table">
-          <thead><tr><th>{{ t("Record") }}</th><th>{{ t("Current") }}</th><th>{{ t("Desired") }}</th><th>{{ t("TTL") }}</th><th>{{ t("Flags") }}</th></tr></thead>
+          <thead><tr><th>{{ t("Record") }}</th><th>{{ t("Current / Desired") }}</th><th>{{ t("TTL") }}</th><th>{{ t("Flags") }}</th></tr></thead>
           <tbody><tr v-for="target in job.targets" :key="`${target.domain}-${target.type}`">
             <td><div class="hstack" style="gap:8px"><span class="rtype" :class="target.type">{{ target.type }}</span><span class="mono" style="font-size:13px">{{ target.domain }}</span></div><div v-if="target.comment" class="row-sub">{{ target.comment }}</div></td>
-            <td class="mono tiny">{{ job.current }}</td>
-            <td><DiffValue :old-value="job.current" :new-value="job.desired" /></td>
+            <td><DiffValue :old-value="job.current" :new-value="job.desired" :strike="false" /></td>
             <td class="mono tiny">{{ target.ttl }}s</td>
             <td><Pill v-if="target.proxied" kind="coral">{{ t("Proxied") }}</Pill><span v-else class="muted tiny">{{ t("DNS only") }}</span></td>
           </tr></tbody>
@@ -119,10 +119,12 @@ function remove(): void {
     <div class="mt16 card table-card-scroll">
       <div class="card-head"><span class="h">{{ t("Run history") }}</span><span class="spacer" /><RouterLink class="btn sm ghost" to="/executions">{{ t("All executions") }}<Icon name="chevron-right" /></RouterLink></div>
       <table class="table clickable">
-        <thead><tr><th>{{ t("When") }}</th><th>{{ t("Trigger") }}</th><th>{{ t("Change") }}</th><th>{{ t("Duration") }}</th><th>{{ t("Result") }}</th></tr></thead>
+        <thead><tr><th>{{ t("When") }}</th><th>{{ t("Trigger") }}</th><th>{{ t("Change") }}</th><th>{{ t("Records") }}</th><th>{{ t("Duration") }}</th></tr></thead>
         <tbody><tr v-for="run in runs" :key="run.id" @click="modal = { type: 'run', run }">
-          <td class="mono tiny">{{ fmtDateTime(run.startedAt) }}</td><td><Pill :kind="run.trigger === 'manual' ? 'info' : 'mute'">{{ t(run.trigger) }}</Pill></td>
-          <td><DiffValue :old-value="run.oldIp || ''" :new-value="run.newIp || ''" /></td><td class="mono tiny">{{ fmtDur(run.durationMs) }}</td><td><StatusPill :status="run.status" /></td>
+          <td class="mono tiny nowrap">{{ fmtDateTime(run.startedAt) }}</td><td><Pill :kind="run.trigger === 'manual' ? 'info' : 'mute'">{{ t(run.trigger) }}</Pill></td>
+          <td><DiffValue :old-value="run.oldIp || ''" :new-value="run.newIp || ''" /></td>
+          <td><RunRecords v-if="run.details?.length" :details="run.details" summary /><StatusPill v-else :status="run.status" /></td>
+          <td class="mono tiny">{{ fmtDur(run.durationMs) }}</td>
         </tr></tbody>
       </table>
     </div>

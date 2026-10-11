@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -399,4 +400,52 @@ func TestErrors(t *testing.T) {
 	srv, _ := newTestServer(t)
 	do(t, srv, "GET", "/api/v1/jobs/nope", nil, 404)
 	do(t, srv, "POST", "/api/v1/providers", map[string]any{"name": "x", "type": "nope"}, 400)
+}
+
+// A manual "run now" must be recorded even when the client disconnects before
+// the run finishes (a reload or navigating away right after clicking Run). The
+// handler detaches the run from the request context, so the aborted POST still
+// leaves a run row behind.
+func TestManualRunRecordedAfterClientAbort(t *testing.T) {
+	srv, a := newTestServer(t)
+
+	// A webhook that stalls long enough for us to cancel the request first.
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(400 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer slow.Close()
+
+	p := do(t, srv, "POST", "/api/v1/providers", map[string]any{
+		"name": "Slow", "type": "custom", "config": map[string]any{"url": slow.URL},
+	}, 201)
+	s := do(t, srv, "POST", "/api/v1/ip-sources", map[string]any{
+		"name": "Fixed", "type": "static", "family": "v4", "target": "203.0.113.9",
+	}, 201)
+	j := do(t, srv, "POST", "/api/v1/jobs", map[string]any{
+		"name": "Home", "providerId": p["id"], "ipSourceId": s["id"],
+		"targets": []map[string]any{{"domain": "home.example.com", "type": "A", "ttl": 300}},
+	}, 201)
+	jobID, _ := j["id"].(string)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req, _ := http.NewRequestWithContext(ctx, "POST", srv.URL+"/api/v1/jobs/"+jobID+"/run", nil)
+	time.AfterFunc(50*time.Millisecond, cancel)
+	// The request is expected to fail; we only care that the run is persisted.
+	if resp, err := http.DefaultClient.Do(req); err == nil {
+		_ = resp.Body.Close()
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		runs, err := a.Store.Runs().List(context.Background(), storage.RunFilter{JobID: jobID})
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		if len(runs) > 0 {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatal("manual run was not recorded after the client aborted")
 }

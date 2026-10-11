@@ -243,6 +243,7 @@ code, kbd { font-family: var(--font-mono); }
   text-align: left; font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
   color: var(--ink-3); font-weight: 600; padding: 11px 16px; border-bottom: 1px solid var(--line);
   background: linear-gradient(180deg, var(--card-2), var(--card)); position: sticky; top: 0;
+  white-space: nowrap;
 }
 .table td { padding: 13px 16px; border-bottom: 1px solid var(--line-2); vertical-align: middle; font-size: 13.5px; }
 .table tbody tr { transition: background .12s var(--ease); }
@@ -291,6 +292,8 @@ code, kbd { font-family: var(--font-mono); }
 
 .row-title { font-weight: 600; }
 .row-sub { color: var(--ink-3); font-size: 12px; margin-top: 2px; }
+.truncate { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nowrap { white-space: nowrap; }
 
 /* ---------- Provider badge ---------- */
 .pv { display: inline-flex; align-items: center; gap: 8px; }
@@ -394,9 +397,9 @@ code, kbd { font-family: var(--font-mono); }
 .tl-text b { color: var(--ink); font-weight: 600; }
 
 /* ---------- Diff (old → new) ---------- */
-.diff { display: inline-flex; align-items: center; gap: 9px; font-family: var(--font-mono); font-size: 12.5px; }
+.diff { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.35; }
 .diff .old { color: var(--ink-4); text-decoration: line-through; text-decoration-color: rgba(177,70,48,.5); }
-.diff .arw { color: var(--ink-3); }
+.diff .old.flat { color: var(--ink-3); text-decoration: none; }
 .diff .new { color: var(--olive); font-weight: 600; }
 
 /* ---------- Empty state ---------- */

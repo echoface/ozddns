@@ -266,6 +266,19 @@ Content-Type: application/json; charset=utf-8
 | `trigger` | `string` | `manual` 或 `schedule` |
 | `message` | `string` | 结果说明；为空时省略 |
 | `records` | `integer` | 实际创建或更新数量；为 0 时省略 |
+| `details` | `RunDetail[]` | 每条记录的逐条结果；为空时省略 |
+
+`RunDetail`：一次执行中单条记录的处置结果，用于在面板中区分哪些记录变了、哪些没变。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `domain` | `string` | 完整域名 |
+| `type` | `string` | `A`、`AAAA` 或 `CNAME` |
+| `action` | `string` | `created`、`updated`、`unchanged`、`skipped` 或 `failed` |
+| `current` | `string` | 写入前的值；为空时省略 |
+| `desired` | `string` | 期望写入的值；为空时省略 |
+| `proxied` | `boolean` | 目标记录的 Cloudflare 代理标记；为 `false` 时省略 |
+| `note` | `string` | 跳过或失败的原因；为空时省略 |
 
 ### 3.6 Settings
 
@@ -843,7 +856,11 @@ POST /api/v1/jobs/{id}/run
   "newIp": "203.0.113.10",
   "trigger": "manual",
   "message": "updated 1 record(s)",
-  "records": 1
+  "records": 1,
+  "details": [
+    { "domain": "home.example.com", "type": "A", "action": "updated", "current": "203.0.113.9", "desired": "203.0.113.10" },
+    { "domain": "nas.example.com", "type": "A", "action": "unchanged", "current": "203.0.113.10", "desired": "203.0.113.10" }
+  ]
 }
 ```
 
@@ -1123,8 +1140,9 @@ IP 来源、任务和设置会被替换，执行历史保留，当前面板密�
 | `ttl` | integer | 否 | `300` | 服务商级默认 TTL |
 
 认证方式二选一：单独提供 `api_token`，或同时提供 `email` + `api_key`。
-任务目标上的 `proxied` 是当前写入逻辑采用的值；服务商配置中的 `proxied` 当前仅作为
-元数据字段保存。
+任务目标（`targets[].proxied`）上的 `proxied` 是写入逻辑实际采用的值：写入时由它决定
+Cloudflare 记录是否开启橙云代理，协调时若与远端不一致也会被回写。服务商配置中的
+`proxied` 是服务商级默认值，新建任务时由面板预填到任务目标上。
 
 ### 10.2 Alibaba Cloud DNS
 

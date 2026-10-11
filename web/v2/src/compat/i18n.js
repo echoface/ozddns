@@ -408,6 +408,7 @@
       'In sync': '已同步',
       'Current': '当前',
       'Desired': '期望',
+      'Current / Desired': '当前 / 期望',
       'TTL': 'TTL',
       'Flags': '标记',
       'Proxied': '已代理',
@@ -573,6 +574,7 @@
       'Preferences': '偏好设置',
       'Language': '语言',
       'Timezone': '时区',
+      'Local (browser)': '本地（浏览器）',
       'Default interval (minutes)': '默认间隔（分钟）',
       'Execution history (days)': '执行历史保留（天）',
       'Runs older than this are deleted for real, once an hour, so the database cannot grow without bound. 1–365.': '超过该天数的执行记录会被真正删除，每小时清理一次，避免数据库无限增长。取值 1–365。',
@@ -778,7 +780,9 @@
       'in {n}h': '{n} 小时后',
 
       /* --- activity feed (demo seed + live event labels) --- */
+      'created': '已创建',
       'updated': '已更新',
+      'unchanged': '无变更',
       'in sync': '已同步',
       'failed': '失败',
       'skipped': '已跳过',
@@ -1047,6 +1051,7 @@
       'In sync': '同期済み',
       'Current': '現在',
       'Desired': '望ましい値',
+      'Current / Desired': '現在 / 望ましい値',
       'TTL': 'TTL',
       'Flags': 'フラグ',
       'Proxied': 'プロキシ済み',
@@ -1211,6 +1216,7 @@
       'Preferences': '環境設定',
       'Language': '言語',
       'Timezone': 'タイムゾーン',
+      'Local (browser)': 'ローカル（ブラウザ）',
       'Default interval (minutes)': '既定の間隔（分）',
       'Execution history (days)': '実行履歴の保持（日）',
       'Runs older than this are deleted for real, once an hour, so the database cannot grow without bound. 1–365.': 'これより古い実行履歴は実際に削除され、1 時間ごとに実行されるため、データベースが無制限に増加することはありません。1〜365。',
@@ -1416,7 +1422,9 @@
       'in {n}h': '{n} 時間後',
 
       /* --- activity feed (demo seed + live event labels) --- */
+      'created': '作成済み',
       'updated': '更新済み',
+      'unchanged': '変更なし',
       'in sync': '同期済み',
       'failed': '失敗',
       'skipped': 'スキップ',

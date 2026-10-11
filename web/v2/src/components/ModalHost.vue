@@ -4,6 +4,7 @@ import Icon from "./Icon.vue";
 import TargetPicker from "./TargetPicker.vue";
 import {
   Banner,
+  DiffValue,
   Pill,
   ProviderField,
   ProviderLogo,
@@ -82,6 +83,21 @@ function onFamilyChange(): void {
 
 function close(): void {
   modal.value = null;
+}
+
+// Colour a per-record action the same way as the list view.
+function runActionKind(action: string): string {
+  switch (action) {
+    case "created":
+    case "updated":
+      return "ok";
+    case "failed":
+      return "err";
+    case "skipped":
+      return "warn";
+    default:
+      return "mute";
+  }
 }
 
 async function confirm(): Promise<void> {
@@ -228,9 +244,30 @@ async function rerun(): Promise<void> {
               <span class="lab"><Icon name="arrow-right" />{{ t("New value") }}</span>
               <span class="val"><span class="mono" style="font-size:15px">{{ modal.run.newIp || "—" }}</span></span>
             </div>
-            <div class="card stat">
+          <div class="card stat">
               <span class="lab"><Icon name="clock" />{{ t("Duration") }}</span>
               <span class="val">{{ fmtDur(modal.run.durationMs) }}</span>
+            </div>
+          </div>
+          <div v-if="modal.run.details?.length" class="mb16">
+            <div class="strong mb8">{{ t("Records") }}</div>
+            <div class="table-wrap">
+              <table class="table">
+                <thead><tr><th>{{ t("Record") }}</th><th>{{ t("Current / Desired") }}</th><th>{{ t("Action") }}</th></tr></thead>
+                <tbody>
+                  <tr v-for="detail in modal.run.details" :key="`${detail.domain}-${detail.type}`">
+                    <td><div class="hstack" style="gap:8px"><span class="rtype" :class="detail.type">{{ detail.type }}</span><span class="mono tiny">{{ detail.domain }}</span></div></td>
+                    <td><DiffValue :old-value="detail.current || ''" :new-value="detail.desired || ''" :strike="false" /></td>
+                    <td>
+                      <div class="hstack wrap" style="gap:6px">
+                        <Pill :kind="runActionKind(detail.action)">{{ t(detail.action) }}</Pill>
+                        <Pill v-if="detail.proxied" kind="coral"><Icon name="cloud" />{{ t("Proxied") }}</Pill>
+                      </div>
+                      <div v-if="detail.note" class="row-sub">{{ detail.note }}</div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
           <div class="strong mb8">{{ t("Steps") }}</div>
@@ -275,11 +312,10 @@ async function rerun(): Promise<void> {
         <div class="sheet-body">
           <div class="table-wrap">
             <table class="table">
-              <thead><tr><th>{{ t("Record") }}</th><th>{{ t("Current") }}</th><th>{{ t("Desired") }}</th><th>{{ t("Action") }}</th></tr></thead>
+              <thead><tr><th>{{ t("Record") }}</th><th>{{ t("Current / Desired") }}</th><th>{{ t("Action") }}</th></tr></thead>
               <tbody><tr v-for="target in modal.diff.targets" :key="`${target.domain}-${target.type}`">
                 <td><div class="hstack" style="gap:8px"><span class="rtype" :class="target.type">{{ target.type }}</span><span class="mono tiny">{{ target.domain }}</span></div></td>
-                <td class="mono tiny">{{ target.current || "—" }}</td>
-                <td class="mono tiny">{{ target.desired || "—" }}</td>
+                <td><DiffValue :old-value="target.current || ''" :new-value="target.desired || ''" :strike="false" /></td>
                 <td><Pill :kind="target.action === 'none' ? 'ok' : target.action === 'skip' ? 'warn' : 'info'">{{ t(target.action) }}</Pill></td>
               </tr></tbody>
             </table>

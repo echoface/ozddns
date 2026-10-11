@@ -188,6 +188,34 @@ func TestRunsFilterAndCount(t *testing.T) {
 	}
 }
 
+// Run details survive a round-trip: the panel relies on them to show which
+// records changed and which did not.
+func TestRunDetailsRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	db := open(t)
+	now := time.Now().UTC()
+	details := []domain.RunDetail{
+		{Domain: "a.example.com", Type: domain.RecordA, Action: domain.RunActionUpdated, Current: "203.0.113.9", Desired: "203.0.113.42", Proxied: true},
+		{Domain: "b.example.com", Type: domain.RecordA, Action: domain.RunActionUnchanged, Current: "203.0.113.42", Desired: "203.0.113.42"},
+		{Domain: "c.example.com", Type: domain.RecordAAAA, Action: domain.RunActionSkipped, Note: "no v6 address"},
+	}
+	id, err := db.Runs().Insert(ctx, domain.Run{JobID: "j1", StartedAt: now, FinishedAt: now,
+		Status: domain.StatusSuccess, Trigger: domain.TriggerSchedule, Details: details})
+	if err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+	got, err := db.Runs().Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(got.Details) != len(details) {
+		t.Fatalf("details = %+v", got.Details)
+	}
+	if got.Details[0] != details[0] || got.Details[1].Action != domain.RunActionUnchanged || got.Details[2].Note != "no v6 address" {
+		t.Fatalf("details = %+v", got.Details)
+	}
+}
+
 // SRC/RUN retention: history older than the cutoff is really gone, newer rows
 // survive, and the count reports what was removed.
 func TestRunsDeleteBefore(t *testing.T) {
@@ -229,7 +257,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get default: %v", err)
 	}
-	if def.DefaultInterval != 5 || def.Timezone != "UTC" {
+	if def.DefaultInterval != 5 || def.Timezone != "" {
 		t.Fatalf("default settings = %+v", def)
 	}
 	def.Timezone = "Asia/Shanghai"

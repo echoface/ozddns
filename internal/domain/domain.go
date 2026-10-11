@@ -161,19 +161,44 @@ const (
 	TriggerManual   Trigger = "manual"
 )
 
+// RunAction is the per-record outcome of a reconciliation, so the panel can
+// say which records changed and which did not.
+type RunAction string
+
+const (
+	RunActionCreated   RunAction = "created"
+	RunActionUpdated   RunAction = "updated"
+	RunActionUnchanged RunAction = "unchanged"
+	RunActionSkipped   RunAction = "skipped"
+	RunActionFailed    RunAction = "failed"
+)
+
+// RunDetail is one record's slice of a run. Current/Desired are the values
+// before and after the run; Note carries a short reason for skip/failure.
+type RunDetail struct {
+	Domain  string     `json:"domain"`
+	Type    RecordType `json:"type"`
+	Action  RunAction  `json:"action"`
+	Current string     `json:"current,omitempty"`
+	Desired string     `json:"desired,omitempty"`
+	Proxied bool       `json:"proxied,omitempty"`
+	Note    string     `json:"note,omitempty"`
+}
+
 // Run is one reconciliation attempt.
 type Run struct {
-	ID         int64     `json:"id"`
-	JobID      string    `json:"jobId"`
-	StartedAt  time.Time `json:"startedAt"`
-	FinishedAt time.Time `json:"finishedAt"`
-	DurationMS int       `json:"durationMs"`
-	Status     RunStatus `json:"status"`
-	OldIP      string    `json:"oldIp,omitempty"`
-	NewIP      string    `json:"newIp,omitempty"`
-	Trigger    Trigger   `json:"trigger"`
-	Message    string    `json:"message,omitempty"`
-	Records    int       `json:"records,omitempty"`
+	ID         int64       `json:"id"`
+	JobID      string      `json:"jobId"`
+	StartedAt  time.Time   `json:"startedAt"`
+	FinishedAt time.Time   `json:"finishedAt"`
+	DurationMS int         `json:"durationMs"`
+	Status     RunStatus   `json:"status"`
+	OldIP      string      `json:"oldIp,omitempty"`
+	NewIP      string      `json:"newIp,omitempty"`
+	Trigger    Trigger     `json:"trigger"`
+	Message    string      `json:"message,omitempty"`
+	Records    int         `json:"records,omitempty"`
+	Details    []RunDetail `json:"details,omitempty"`
 }
 
 // JobState is the mutable runtime state of a job (kept out of the job config).

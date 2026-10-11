@@ -145,6 +145,7 @@ func (a *App) RunJob(ctx context.Context, jobID string, trigger domain.Trigger) 
 		DurationMS: int(finished.Sub(started).Milliseconds()),
 		Status:     result.Status, OldIP: result.OldIP, NewIP: result.NewIP,
 		Trigger: trigger, Message: result.Message, Records: result.Records,
+		Details: result.Details,
 	}
 	if recErr != nil {
 		run.Status = domain.StatusFailed

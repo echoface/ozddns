@@ -43,13 +43,13 @@ async function changeEnabled(job: Job, event?: Event): Promise<void> {
           <td>
             <div class="hstack" style="gap:10px">
               <Toggle :model-value="job.enabled" :label="t(job.enabled ? 'Disable task' : 'Enable task')" @click="changeEnabled(job, $event)" />
-              <div><div class="row-title">{{ job.name }}</div><div class="row-sub">{{ getProviderType(getProvider(job.providerId)?.type || "")?.label }}</div></div>
+              <div style="min-width:0"><div class="row-title truncate">{{ job.name }}</div><div class="row-sub truncate" :title="job.name">{{ getProviderType(getProvider(job.providerId)?.type || "")?.label }}</div></div>
             </div>
           </td>
           <td>
             <div class="hstack" style="gap:8px">
               <span class="rtype" :class="job.targets[0]?.type">{{ job.targets[0]?.type }}</span>
-              <div><div class="row-title mono" style="font-size:13px">{{ job.targets[0]?.domain }}</div><div class="row-sub">{{ job.targets.length > 1 ? t("{n} more", { n: job.targets.length - 1 }) + " · " : "" }}{{ job.current || "—" }}</div></div>
+              <div style="min-width:0"><div class="row-title mono truncate" style="font-size:13px">{{ job.targets[0]?.domain }}</div><div class="row-sub truncate" :title="job.current">{{ job.targets.length > 1 ? t("{n} more", { n: job.targets.length - 1 }) + " · " : "" }}{{ job.current || "—" }}</div></div>
             </div>
           </td>
           <td class="mono tiny">{{ t("{n} min", { n: job.intervalMinutes }) }}</td>

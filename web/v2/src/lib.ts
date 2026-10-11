@@ -3,7 +3,9 @@ import type { ThemePreference } from "./types";
 
 export const localeVersion = ref(0);
 export const themePreference = ref<ThemePreference>("light");
-export const timeZone = ref("UTC");
+// Empty means "follow the browser's zone"; a non-empty value is an explicit
+// override chosen in Settings.
+export const timeZone = ref("");
 
 export function t(key: string, vars?: Record<string, unknown>): string {
   return window.OZ?.t ? window.OZ.t(key, vars) : interpolate(key, vars);
@@ -25,7 +27,7 @@ export function currentLocale(): string {
 }
 
 export function setTimeZone(value: unknown): void {
-  timeZone.value = String(value || "UTC");
+  timeZone.value = String(value ?? "");
 }
 
 function normalizeTheme(value: unknown): ThemePreference | null {
@@ -80,14 +82,15 @@ export function fmtTime(ts?: number | null): string {
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
-    timeZone: timeZone.value
+    timeZone: timeZone.value || undefined
   });
 }
 
 export function fmtDateTime(ts?: number | null): string {
   if (!ts) return "—";
   const d = new Date(ts);
-  return `${d.toLocaleDateString(currentLocale(), { month: "short", day: "numeric", timeZone: timeZone.value })} ${d.toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: timeZone.value })}`;
+  const zone = timeZone.value || undefined;
+  return `${d.toLocaleDateString(currentLocale(), { month: "short", day: "numeric", timeZone: zone })} ${d.toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: zone })}`;
 }
 
 export function fmtAgo(ts?: number | null): string {

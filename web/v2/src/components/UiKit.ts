@@ -130,13 +130,12 @@ export const EmptyState = defineComponent({
 
 export const DiffValue = defineComponent({
   name: "DiffValue",
-  props: { oldValue: String, newValue: String },
+  props: { oldValue: String, newValue: String, strike: { type: Boolean, default: true } },
   setup(props) {
     return () => props.oldValue === props.newValue
       ? h("span", { class: "mono", style: "color:var(--ink-2)" }, props.newValue || "—")
       : h("span", { class: "diff" }, [
-          h("span", { class: "old" }, props.oldValue || "—"),
-          h("span", { class: "arw" }, "→"),
+          h("span", { class: props.strike ? "old" : "old flat" }, props.oldValue || "—"),
           h("span", { class: "new" }, props.newValue || "—")
         ]);
   }

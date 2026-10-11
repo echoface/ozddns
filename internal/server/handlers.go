@@ -1,15 +1,21 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/echoface/ozddns/internal/app"
 	"github.com/echoface/ozddns/internal/domain"
 	"github.com/echoface/ozddns/internal/storage"
 )
+
+// manualRunTimeout bounds a manual "run now" so a stuck provider cannot tie the
+// daemon up forever.
+const manualRunTimeout = 3 * time.Minute
 
 func decode[T any](r *http.Request) (T, error) {
 	var v T
@@ -280,7 +286,12 @@ func (s *Server) handleDeleteJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRunJob(w http.ResponseWriter, r *http.Request) {
-	run, err := s.App.RunNow(r.Context(), r.PathValue("id"))
+	// A manual run must finish (and be recorded) even if the browser reloads or
+	// navigates away mid-flight. Detach it from the request context so a closed
+	// connection cannot cancel the write, and bound it with its own timeout.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), manualRunTimeout)
+	defer cancel()
+	run, err := s.App.RunNow(ctx, r.PathValue("id"))
 	if err != nil && run.JobID == "" {
 		writeError(w, statusFor(err), err.Error())
 		return
@@ -299,7 +310,11 @@ func (s *Server) handleDryRun(w http.ResponseWriter, r *http.Request) {
 
 // handleRunAll reconciles every enabled job immediately ("Run all").
 func (s *Server) handleRunAll(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.App.RunAllEnabled(r.Context()))
+	// Same reasoning as handleRunJob: "run all" can take a while, and every run
+	// it performs must be persisted even if the client goes away.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), manualRunTimeout)
+	defer cancel()
+	writeJSON(w, http.StatusOK, s.App.RunAllEnabled(ctx))
 }
 
 // ---- runs ----------------------------------------------------------------

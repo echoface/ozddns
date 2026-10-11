@@ -25,7 +25,10 @@ const tabs = [["general", "General"], ["scheduler", "Scheduler"], ["security", "
 const form = reactive<Record<string, any>>({});
 const languageCodes = window.OZ.i18n.codes;
 const languageLabel = (code: string) => window.OZ.i18n.label(code);
-const timezones = ["UTC", ...(((Intl as any).supportedValuesOf?.("timeZone") as string[] | undefined) || [
+// "" follows the browser's zone. Fixed UTC is offered as "Etc/UTC" — the panel
+// reserves the plain "UTC" string as the legacy "never chosen" default, which
+// the server rewrites to "".
+const zones = (((Intl as any).supportedValuesOf?.("timeZone") as string[] | undefined) || [
   "Asia/Shanghai",
   "Asia/Tokyo",
   "Europe/London",
@@ -35,7 +38,8 @@ const timezones = ["UTC", ...(((Intl as any).supportedValuesOf?.("timeZone") as 
   "America/Denver",
   "America/Los_Angeles",
   "Australia/Sydney"
-])];
+]);
+const timezones = computed(() => [{ value: "", label: t("Local (browser)") }, { value: "Etc/UTC", label: "UTC" }, ...zones.map((zone) => ({ value: zone, label: zone }))]);
 const importInput = ref<HTMLInputElement | null>(null);
 const tabsElement = ref<HTMLElement | null>(null);
 const testingId = ref("");
@@ -230,7 +234,7 @@ async function copy(value: string): Promise<void> {
       <div class="strong mb16">{{ t("Preferences") }}</div>
       <div class="field" data-no-i18n><label>{{ t("Language") }}</label><select v-model="form.language" class="input"><option v-for="code in languageCodes" :key="code" :value="code">{{ languageLabel(code) }}</option></select></div>
       <div class="field"><label>{{ t("Theme") }}</label><select v-model="form.theme" class="input"><option value="light">{{ t("Light") }}</option><option value="dark">{{ t("Dark") }}</option><option value="auto">{{ t("Auto") }}</option></select><span class="help">{{ t("Auto follows your operating system setting.") }}</span></div>
-      <div class="field"><label>{{ t("Timezone") }}</label><select v-model="form.timezone" class="input mono"><option v-for="timezone in timezones" :key="timezone" :value="timezone">{{ timezone }}</option></select></div>
+      <div class="field"><label>{{ t("Timezone") }}</label><select v-model="form.timezone" class="input mono"><option v-for="timezone in timezones" :key="timezone.value" :value="timezone.value">{{ timezone.label }}</option></select></div>
       <div class="field"><label>{{ t("Default interval (minutes)") }}</label><input v-model.number="form.defaultInterval" type="number" class="input mono"></div>
       <div class="field"><label>{{ t("Execution history (days)") }}</label><input v-model.number="form.retention" type="number" class="input mono"><span class="help">{{ t("Runs older than this are deleted for real, once an hour, so the database cannot grow without bound. 1–365.") }}</span></div>
       <button class="btn primary mt16" @click="saveSettings"><Icon name="save" />{{ t("Save changes") }}</button>

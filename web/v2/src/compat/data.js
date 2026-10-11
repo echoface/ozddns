@@ -179,14 +179,25 @@
     return r;
   }
   var runs = [
-    run('r-101', 'j-tail', 1, 320, 'skipped', null, null, { message: 'No IPv6 address detected; nothing to update.' }),
-    run('r-100', 'j-home-v4', 2, 780, 'nochange', '203.0.113.42', '203.0.113.42', { message: 'Record already matches; skipped write.' }),
+    run('r-101', 'j-tail', 1, 320, 'skipped', null, null, { message: 'No IPv6 address detected; nothing to update.', details: [
+      { domain: 'ozddns.duckdns.org', type: 'AAAA', action: 'skipped', note: 'no IPv6 address on this host' }
+    ] }),
+    run('r-100', 'j-home-v4', 2, 780, 'nochange', '203.0.113.42', '203.0.113.42', { message: 'Record already matches; skipped write.', details: [
+      { domain: 'home.example.com', type: 'A', action: 'unchanged', current: '203.0.113.42', desired: '203.0.113.42', proxied: true }
+    ] }),
     run('r-99', 'j-home-v6', 2, 690, 'nochange', '2001:db8:8a2e:370:7334::1', '2001:db8:8a2e:370:7334::1', { message: 'Record already matches; skipped write.' }),
-    run('r-98', 'j-nas', 7, 1420, 'success', '198.51.100.7', '198.51.100.7', { records: 2, message: 'Patched proxied flag on cdn.ozhao.cn.' }),
-    run('r-97', 'j-blog', 11, 510, 'failed', null, null, { message: 'authentication failed: token rejected (401)' }),
+    run('r-98', 'j-nas', 7, 1420, 'success', '198.51.100.7', '198.51.100.7', { records: 1, message: 'Updated 1 of 2 records.', details: [
+      { domain: 'nas.ozhao.cn', type: 'A', action: 'unchanged', current: '198.51.100.7', desired: '198.51.100.7' },
+      { domain: 'cdn.ozhao.cn', type: 'A', action: 'updated', current: '198.51.100.9', desired: '198.51.100.7' }
+    ] }),
+    run('r-97', 'j-blog', 11, 510, 'failed', null, null, { message: 'authentication failed: token rejected (401)', details: [
+      { domain: 'blog.family.site', type: 'A', action: 'failed', desired: '203.0.113.42', note: 'token rejected (401)' }
+    ] }),
     run('r-96', 'j-home-v4', 7, 640, 'nochange', '203.0.113.42', '203.0.113.42'),
     run('r-95', 'j-iot', 35, 980, 'success', '203.0.113.42', '203.0.113.42', { message: 'Webhook returned 200 OK.' }),
-    run('r-94', 'j-home-v4', 12, 3120, 'success', '203.0.113.9', '203.0.113.42', { message: 'Updated A record for home.example.com.' }),
+    run('r-94', 'j-home-v4', 12, 3120, 'success', '203.0.113.9', '203.0.113.42', { message: 'Updated A record for home.example.com.', details: [
+      { domain: 'home.example.com', type: 'A', action: 'updated', current: '203.0.113.9', desired: '203.0.113.42', proxied: true }
+    ] }),
     run('r-93', 'j-home-v6', 12, 2440, 'success', '2001:db8:8a2e:370:7334::1', '2001:db8:8a2e:370:7334::1'),
     run('r-92', 'j-blog', 26, 480, 'failed', null, null, { message: 'authentication failed: token rejected (401)' }),
     run('r-91', 'j-nas', 17, 1310, 'nochange', '198.51.100.7', '198.51.100.7'),

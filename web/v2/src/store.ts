@@ -76,7 +76,8 @@ function mapRun(run: any): Run {
     newIp: run.newIp || null,
     trigger: run.trigger,
     message: run.message || "",
-    records: run.records || 0
+    records: run.records || 0,
+    details: Array.isArray(run.details) ? run.details : []
   };
 }
 
@@ -87,7 +88,8 @@ function mapSettings(settings: any): any {
       language: window.OZ.i18n.normalize(settings.language) || "en",
       theme: settings.theme || "light",
       defaultInterval: settings.defaultInterval || 5,
-      timezone: settings.timezone || "UTC",
+      // Empty means "follow the browser's zone".
+      timezone: settings.timezone || "",
       schedulerPaused: !!settings.schedulerPaused,
       schedulerTickSeconds: settings.schedulerTickSeconds || 5,
       schedulerWorkers: settings.schedulerWorkers || 4,

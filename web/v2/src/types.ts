@@ -65,6 +65,18 @@ export interface Job {
   note?: string;
 }
 
+export type RunAction = "created" | "updated" | "unchanged" | "skipped" | "failed";
+
+export interface RunDetail {
+  domain: string;
+  type: "A" | "AAAA" | "CNAME";
+  action: RunAction;
+  current?: string;
+  desired?: string;
+  proxied?: boolean;
+  note?: string;
+}
+
 export interface Run {
   id: string;
   jobId: string;
@@ -76,6 +88,7 @@ export interface Run {
   trigger: "manual" | "schedule";
   message: string;
   records: number;
+  details?: RunDetail[];
 }
 
 export interface IPSource {
