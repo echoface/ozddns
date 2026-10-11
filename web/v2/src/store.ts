@@ -134,13 +134,15 @@ function applyBootstrap(payload: any): void {
   data.runs = (payload.runs || []).map(mapRun);
   const ip = payload.ip || {};
   const checkedAt = toMs(ip.checkedAt);
+  // Bootstrap returns the cached public address; it can be empty while the
+  // background probe is still running, so never blank a value we already have.
   data.ipInfo = {
-    v4: ip.v4 || "",
-    v4Source: ip.v4Source || "—",
-    v4Checked: checkedAt,
-    v6: ip.v6 || "",
-    v6Source: ip.v6Source || "—",
-    v6Checked: checkedAt
+    v4: ip.v4 || data.ipInfo.v4,
+    v4Source: ip.v4Source || data.ipInfo.v4Source,
+    v4Checked: checkedAt || data.ipInfo.v4Checked,
+    v6: ip.v6 || data.ipInfo.v6,
+    v6Source: ip.v6Source || data.ipInfo.v6Source,
+    v6Checked: checkedAt || data.ipInfo.v6Checked
   };
   const status = payload.status || {};
   data.runtime = {
@@ -151,6 +153,7 @@ function applyBootstrap(payload: any): void {
     dbPath: status.dbPath,
     dbDriver: status.dbDriver,
     listen: status.listen,
+    listenSource: status.listenSource,
     goVersion: status.goVersion,
     goos: status.goos,
     goarch: status.goarch
@@ -386,12 +389,17 @@ export async function deleteJob(job: Job): Promise<void> {
   location.hash = "#/jobs";
 }
 
+// upsertSource folds a create/update response back into the shared list so the
+// UI updates immediately instead of waiting on a full (and slow) bootstrap.
+export function upsertSource(source: IPSource): void {
+  const index = data.ipSources.findIndex((item) => item.id === source.id);
+  if (index >= 0) data.ipSources.splice(index, 1, { ...data.ipSources[index], ...source });
+  else data.ipSources.push(source);
+}
+
 export async function deleteSource(source: IPSource): Promise<void> {
-  if (bootState.value === "offline") data.ipSources = data.ipSources.filter((item) => item.id !== source.id);
-  else {
-    await api.del(`/ip-sources/${source.id}`);
-    await refresh(true);
-  }
+  if (bootState.value !== "offline") await api.del(`/ip-sources/${source.id}`);
+  data.ipSources = data.ipSources.filter((item) => item.id !== source.id);
   notify("ok", t("IP source deleted"), source.name);
 }
 

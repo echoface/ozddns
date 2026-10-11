@@ -22,9 +22,61 @@ var defaultSources = map[string]domain.IPSource{
 	"v6": {Type: domain.IPHTTP, Family: "v6", Target: "https://v6.ifconfig.co"},
 }
 
-// CurrentIP resolves the host's public address using configured sources (or the
-// built-in defaults).
+// ipCacheTTL bounds how long a resolved address is served before a background
+// probe refreshes it.
+const ipCacheTTL = 30 * time.Second
+
+// CurrentIP returns the public address without blocking on the network. On a
+// cold or stale cache it launches a background probe and returns whatever is
+// cached (possibly zero on the very first call), so bootstrap stays fast even
+// when a probe endpoint is slow or unreachable.
 func (a *App) CurrentIP(ctx context.Context) PublicIP {
+	a.ipMu.RLock()
+	cached, filled := a.ipCache, a.ipFilled
+	a.ipMu.RUnlock()
+	if filled.IsZero() || time.Since(filled) > ipCacheTTL {
+		go a.refreshIP()
+	}
+	return cached
+}
+
+// ResolveIP resolves the public address synchronously, caches it and returns it.
+// It backs the panel's explicit "Refresh IP" action, where blocking is expected.
+func (a *App) ResolveIP(ctx context.Context) PublicIP {
+	out := a.resolveIP(ctx)
+	a.storeIP(out)
+	return out
+}
+
+// refreshIP probes in the background, guarding against overlapping probes.
+func (a *App) refreshIP() {
+	a.ipMu.Lock()
+	if a.ipFilling {
+		a.ipMu.Unlock()
+		return
+	}
+	a.ipFilling = true
+	a.ipMu.Unlock()
+	defer func() {
+		a.ipMu.Lock()
+		a.ipFilling = false
+		a.ipMu.Unlock()
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	a.storeIP(a.resolveIP(ctx))
+}
+
+func (a *App) storeIP(out PublicIP) {
+	a.ipMu.Lock()
+	a.ipCache = out
+	a.ipFilled = time.Now()
+	a.ipMu.Unlock()
+}
+
+// resolveIP resolves the host's public address using configured sources (or the
+// built-in defaults).
+func (a *App) resolveIP(ctx context.Context) PublicIP {
 	out := PublicIP{CheckedAt: time.Now().UTC()}
 	sources, _ := a.Store.IPSources().List(ctx)
 	pick := func(family string) (domain.IPSource, string, bool) {

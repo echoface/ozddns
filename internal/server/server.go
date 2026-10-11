@@ -38,6 +38,9 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) routes() {
 	m := s.mux
+	// Liveness probe: unauthenticated on purpose so container/orchestrator
+	// health checks keep working even when a password is set.
+	m.HandleFunc("GET /healthz", s.handleHealth)
 	m.HandleFunc("GET /api/v1/bootstrap", s.handleBootstrap)
 	m.HandleFunc("GET /api/v1/provider-types", s.handleProviderTypes)
 	m.HandleFunc("GET /api/v1/ip-source-types", s.handleSourceTypes)
@@ -89,6 +92,10 @@ func (s *Server) routes() {
 
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		settings, err := s.App.GetSettings(r.Context())
 		if err != nil || !settings.PasswordSet {
 			next.ServeHTTP(w, r)

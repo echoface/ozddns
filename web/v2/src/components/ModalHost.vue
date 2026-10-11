@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import Icon from "./Icon.vue";
 import TargetPicker from "./TargetPicker.vue";
 import {
@@ -20,14 +20,17 @@ import {
   modal,
   notify,
   refresh,
-  runJob
+  runJob,
+  upsertSource
 } from "../store";
 import { defaultTarget, targetPlaceholder, targetPresets } from "../ipsourceTargets";
 
 const form = reactive<Record<string, any>>({});
+const saving = ref(false);
 
 watch(modal, (value) => {
   Object.keys(form).forEach((key) => delete form[key]);
+  saving.value = false;
   if (value?.type === "source") {
     if (value.source) {
       form.name = value.source.name;
@@ -90,11 +93,13 @@ async function confirm(): Promise<void> {
 }
 
 async function saveSource(): Promise<void> {
+  if (saving.value) return;
   const state = modal.value;
+  saving.value = true;
   try {
     if (bootState.value === "offline") {
       if (state?.source) Object.assign(state.source, { name: form.name, type: form.sourceType, family: form.family, target: form.target });
-      else data.ipSources.push({
+      else upsertSource({
         id: `src-${Date.now()}`,
         name: form.name,
         type: form.sourceType,
@@ -103,20 +108,22 @@ async function saveSource(): Promise<void> {
         enabled: true
       });
     } else if (state?.source) {
-      await api.patch(`/ip-sources/${state.source.id}`, {
+      const updated = await api.patch(`/ip-sources/${state.source.id}`, {
         name: form.name, type: form.sourceType, family: form.family, target: form.target
       });
-      await refresh(true);
+      upsertSource(updated);
     } else {
-      await api.post("/ip-sources", {
+      const created = await api.post("/ip-sources", {
         name: form.name, type: form.sourceType || "http", family: form.family || "v4", target: form.target
       });
-      await refresh(true);
+      upsertSource(created);
     }
     notify("ok", t(state?.source ? "IP source updated" : "IP source added"), form.name || "");
     close();
   } catch (error) {
     fail(error, t(state?.source ? "Could not update source" : "Could not add source"));
+  } finally {
+    saving.value = false;
   }
 }
 
@@ -358,8 +365,8 @@ async function rerun(): Promise<void> {
           </div>
         </div>
         <div class="sheet-foot">
-          <button class="btn" @click="close">{{ t("Cancel") }}</button>
-          <button class="btn primary" @click="saveSource"><Icon name="check" />{{ t(modal.source ? "Save source" : "Add source") }}</button>
+          <button class="btn" :disabled="saving" @click="close">{{ t("Cancel") }}</button>
+          <button class="btn primary" :disabled="saving" @click="saveSource"><Icon :class="saving ? 'spin' : ''" :name="saving ? 'loader' : 'check'" />{{ t(saving ? "Saving…" : (modal.source ? "Save source" : "Add source")) }}</button>
         </div>
       </div>
 

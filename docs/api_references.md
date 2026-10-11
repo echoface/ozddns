@@ -284,7 +284,6 @@ Content-Type: application/json; charset=utf-8
 | `passwordSet` | `boolean` | `false` | 是否已设置密码，只读状态字段 |
 | `allowWan` | `boolean` | `false` | WAN 访问配置标记 |
 | `tls` | `boolean` | `false` | TLS 配置标记 |
-| `listen` | `string` | `127.0.0.1:9876` | 监听地址配置 |
 | `notifications` | `Notification[]` | `[]` | 通知渠道 |
 
 `Notification`：
@@ -444,7 +443,8 @@ GET /api/v1/status
   "runsSkipped": 0,
   "dbDriver": "sqlite",
   "dbPath": "/data/ozddns.db",
-  "listen": "127.0.0.1:9876",
+  "listen": "0.0.0.0:9876",
+  "listenSource": "env",
   "serverTime": "2026-10-10T08:30:00Z"
 }
 ```
@@ -992,7 +992,6 @@ PATCH /api/v1/settings
   "password": "new-password",
   "allowWan": false,
   "tls": false,
-  "listen": "127.0.0.1:9876",
   "schedulerPaused": false,
   "schedulerTickSeconds": 5,
   "schedulerWorkers": 4,
@@ -1009,8 +1008,9 @@ PATCH /api/v1/settings
 - 调度设置保存后立即应用，无需重启。
 - `password` 非空时会更新密码；此接口不能用空字符串清除密码。
 - `passwordSet` 是响应字段，提交不会直接改变密码状态。
-- `listen`、`allowWan`、`tls` 会持久化；进程监听方式是否立即变化取决于启动层，
-  此 PATCH 本身不会重启 HTTP Server。
+- `allowWan`、`tls` 会持久化；此 PATCH 本身不会重启 HTTP Server。
+- 监听地址不属于设置项：它由 `--listen`、`OZDDNS_LISTEN` 或 `config.yaml`
+  在启动时决定（见 §4.5 的 `listen` / `listenSource`），面板只读展示。
 
 ### 9.3 设置或清除密码
 

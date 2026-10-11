@@ -28,14 +28,7 @@ func EnsureDefaults(ctx context.Context, store storage.Store) error {
 			}
 		}
 	}
-	settings, err := store.Settings().Get(ctx)
-	if err != nil {
-		return err
-	}
-	if settings.Listen == "" {
-		settings.Listen = "127.0.0.1:9876"
-	}
-	return store.Settings().Save(ctx, settings)
+	return nil
 }
 
 // Demo inserts the dataset the design prototype uses, so the panel has realistic

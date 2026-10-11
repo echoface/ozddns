@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -41,6 +43,48 @@ func (e *env) fail(err error) int {
 
 // ---- status / ip ---------------------------------------------------------
 
+// cmdHealth probes a running daemon's /healthz endpoint. It resolves the bind
+// address with the same precedence the daemon used, so it works no matter how
+// the address was configured (flag, OZDDNS_LISTEN, config.yaml, or default).
+func (e *env) cmdHealth(args []string) int {
+	fs := flag.NewFlagSet("health", flag.ContinueOnError)
+	fs.SetOutput(e.err)
+	listen := fs.String("listen", "", "address to probe (overrides OZDDNS_LISTEN and config.yaml)")
+	timeout := fs.Duration("timeout", 3*time.Second, "how long to wait for a response")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	addr, _ := e.resolveListen(*listen)
+	url := "http://" + probeHost(addr) + "/healthz"
+	client := &http.Client{Timeout: *timeout}
+	resp, err := client.Get(url)
+	if err != nil {
+		fmt.Fprintf(e.err, "unhealthy: %v\n", err)
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(e.err, "unhealthy: %s returned HTTP %d\n", url, resp.StatusCode)
+		return 1
+	}
+	fmt.Fprintf(e.out, "ok\t%s\n", url)
+	return 0
+}
+
+// probeHost rewrites a wildcard bind address (0.0.0.0 / ::) to loopback so the
+// probe connects to a concrete host.
+func probeHost(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	switch host {
+	case "", "0.0.0.0", "::", "[::]":
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, port)
+}
+
 func (e *env) cmdStatus(args []string) int {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(e.err)
@@ -63,7 +107,7 @@ func (e *env) cmdStatus(args []string) int {
 		fmt.Fprintf(w, "Tasks\t%d (%d enabled)\n", st.Jobs, st.JobsEnabled)
 		fmt.Fprintf(w, "Runs\tsuccess %d · no-change %d · failed %d · skipped %d\n",
 			st.RunsSuccess, st.RunsNoChange, st.RunsFailed, st.RunsSkipped)
-		fmt.Fprintf(w, "Listen\t%s\n", st.Listen)
+		fmt.Fprintf(w, "Listen\t%s (%s)\n", st.Listen, st.ListenSource)
 		fmt.Fprintf(w, "Database\t%s · %s\n", st.DBDriver, st.DBPath)
 		return flush(w, e)
 	})

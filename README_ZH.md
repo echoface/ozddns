@@ -124,6 +124,33 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
+### 部署配置文件
+
+进程如何运行——监听地址、数据库路径、日志级别——属于**部署配置**：启动时解析一次，
+不会存入数据库，也不在面板中修改（从面板改监听地址会把你自己正在使用的连接切断）。
+
+在二进制文件旁边放置可选的 `config.yaml`：
+
+```yaml
+# config.yaml
+listen: 0.0.0.0:9876
+db: /data/ozddns.db
+logLevel: info
+```
+
+该文件是可选的：`serve` 启动时若不存在，OzDDNS 会写入这份带注释的默认配置并继续运行
+（目录只读不算错误）。用 `--config` 或 `OZDDNS_CONFIG` 指定其他路径；`--config` 也可
+放在子命令之后，例如 `ozddns serve --config /etc/ozddns/config.yaml`。
+
+所有部署项遵循同一优先级，越具体的来源优先级越高：
+
+- **`--listen` / `--db` / `--log-level` 命令行参数**（最高）
+- **环境变量** —— `OZDDNS_LISTEN`、`OZDDNS_DB`、`OZDDNS_LOG_LEVEL`
+- **`config.yaml`** —— 路径由 `--config` 或 `OZDDNS_CONFIG` 指定（默认 `./config.yaml`）
+- **内置默认值** —— `127.0.0.1:9876`、`./ozddns.db`、`info`（最低）
+
+`ozddns health` 会按同一套优先级解析地址并探测 `/healthz`，容器与脚本健康检查无需硬编码端口。
+
 ## 首次配置
 
 管理面板是最短的配置路径：
@@ -220,7 +247,8 @@ web/                 嵌入式生产资源
 
 ## 安全说明
 
-- 默认监听地址为 `127.0.0.1:9876`。
+- 监听地址属于部署配置，不是存储的设置：启动时由 `--listen`、`OZDDNS_LISTEN`
+  或 `config.yaml` 解析（默认 `127.0.0.1:9876`），面板仅只读展示。
 
 - 设置管理员密码后，HTTP Basic Auth 会自动启用。
 

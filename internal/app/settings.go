@@ -21,7 +21,6 @@ type SettingsInput struct {
 	Password             *string                `json:"password"`
 	AllowWAN             *bool                  `json:"allowWan"`
 	TLS                  *bool                  `json:"tls"`
-	Listen               *string                `json:"listen"`
 	SchedulerPaused      *bool                  `json:"schedulerPaused"`
 	SchedulerTickSeconds *int                   `json:"schedulerTickSeconds"`
 	SchedulerWorkers     *int                   `json:"schedulerWorkers"`
@@ -62,9 +61,6 @@ func (a *App) PatchSettings(ctx context.Context, in SettingsInput) (domain.Setti
 	}
 	if in.TLS != nil {
 		s.TLS = *in.TLS
-	}
-	if in.Listen != nil && *in.Listen != "" {
-		s.Listen = *in.Listen
 	}
 	if in.SchedulerPaused != nil {
 		s.SchedulerPaused = *in.SchedulerPaused
@@ -116,9 +112,6 @@ func (a *App) SaveSettings(ctx context.Context, s domain.Settings) (domain.Setti
 	}
 	if s.PasswordHash == "" {
 		s.PasswordHash = existing.PasswordHash
-	}
-	if s.Listen == "" {
-		s.Listen = existing.Listen
 	}
 	s.PasswordSet = s.PasswordHash != ""
 	if err := a.Store.Settings().Save(ctx, s); err != nil {

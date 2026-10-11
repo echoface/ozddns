@@ -3,6 +3,9 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,6 +28,74 @@ func TestVersionAndUsage(t *testing.T) {
 	}
 	if code, _, _ := run(t, "nonsense"); code != 2 {
 		t.Fatalf("unknown command code = %d, want 2", code)
+	}
+}
+
+func TestConfigFileProvidesDefaults(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "from-config.db")
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("db: "+dbPath+"\nlisten: 127.0.0.1:4321\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The database path from config.yaml is used when no flag/env is present.
+	if code, _, errOut := run(t, "--config", cfgPath, "provider", "list"); code != 0 {
+		t.Fatalf("provider list: %d %s", code, errOut)
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("config db path was not used: %v", err)
+	}
+	// status reports the resolved listen address and its source.
+	_, out, _ := run(t, "--config", cfgPath, "status")
+	if !strings.Contains(out, "127.0.0.1:4321 (config)") {
+		t.Fatalf("status listen = %q", out)
+	}
+}
+
+func TestFlagBeatsEnvAndConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("db: "+filepath.Join(dir, "config.db")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	flagDB := filepath.Join(dir, "flag.db")
+	t.Setenv("OZDDNS_DB", filepath.Join(dir, "env.db"))
+	if code, _, errOut := run(t, "--config", cfgPath, "--db", flagDB, "provider", "list"); code != 0 {
+		t.Fatalf("provider list: %d %s", code, errOut)
+	}
+	if _, err := os.Stat(flagDB); err != nil {
+		t.Fatalf("--db should win over env/config: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "env.db")); err == nil {
+		t.Fatal("env db should not be used when --db is set")
+	}
+}
+
+func TestExplicitMissingConfigIsAnErrorForOneOffCommands(t *testing.T) {
+	// A typo'd --config on a non-serve command should be surfaced, not hidden.
+	missing := filepath.Join(t.TempDir(), "typo.yaml")
+	code, _, errOut := run(t, "--config", missing, "status")
+	if code != 2 || !strings.Contains(errOut, "not found") {
+		t.Fatalf("expected a not-found error, got code=%d err=%q", code, errOut)
+	}
+}
+
+func TestHealthCommand(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/healthz" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	addr := strings.TrimPrefix(srv.URL, "http://")
+	if code, out, errOut := run(t, "health", "--listen", addr); code != 0 {
+		t.Fatalf("health against a live server: %d %s %s", code, out, errOut)
+	}
+	// A wildcard bind address is probed through loopback; a closed port fails.
+	if code, _, _ := run(t, "health", "--listen", "0.0.0.0:1", "--timeout", "500ms"); code != 1 {
+		t.Fatalf("health against a closed port = %d, want 1", code)
 	}
 }
 

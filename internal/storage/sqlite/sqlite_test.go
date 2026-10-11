@@ -229,8 +229,8 @@ func TestSettingsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get default: %v", err)
 	}
-	if def.Listen != "127.0.0.1:9876" {
-		t.Fatalf("default listen = %q", def.Listen)
+	if def.DefaultInterval != 5 || def.Timezone != "UTC" {
+		t.Fatalf("default settings = %+v", def)
 	}
 	def.Timezone = "Asia/Shanghai"
 	def.Notifications = []domain.Notification{{ID: "n1", Kind: "slack", Name: "alerts", Target: "https://x", Enabled: true, On: []string{"failure"}}}

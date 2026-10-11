@@ -25,6 +25,7 @@ type RuntimeStatus struct {
 	DBDriver      string    `json:"dbDriver"`
 	DBPath        string    `json:"dbPath"`
 	Listen        string    `json:"listen"`
+	ListenSource  string    `json:"listenSource"`
 	GoVersion     string    `json:"goVersion"`
 	GOOS          string    `json:"goos"`
 	GOARCH        string    `json:"goarch"`
@@ -35,7 +36,6 @@ type RuntimeStatus struct {
 func (a *App) Status(ctx context.Context) (RuntimeStatus, error) {
 	providers, _ := a.Store.Providers().List(ctx)
 	jobs, _ := a.Store.Jobs().List(ctx)
-	settings, _ := a.Store.Settings().Get(ctx)
 	enabled := 0
 	for _, j := range jobs {
 		if j.Enabled {
@@ -47,12 +47,10 @@ func (a *App) Status(ctx context.Context) (RuntimeStatus, error) {
 		Scheduler:     boolStr(a.Running(), "running", "paused"),
 		UptimeSeconds: int64(a.Uptime().Seconds()),
 		Providers:     len(providers), Jobs: len(jobs), JobsEnabled: enabled,
-		DBDriver: a.DBDriver, DBPath: a.DBPath, Listen: settings.Listen,
+		DBDriver: a.DBDriver, DBPath: a.DBPath,
+		Listen: a.ListenAddr, ListenSource: a.ListenSource,
 		GoVersion: runtime.Version(), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH,
 		ServerTime: time.Now().UTC(),
-	}
-	if a.ListenAddr != "" {
-		st.Listen = a.ListenAddr
 	}
 	st.RunsSuccess, _ = a.Store.Runs().CountByStatus(ctx, domain.StatusSuccess)
 	st.RunsNoChange, _ = a.Store.Runs().CountByStatus(ctx, domain.StatusNoChange)

@@ -224,7 +224,6 @@ type Settings struct {
 	PasswordSet      bool           `json:"passwordSet"`
 	AllowWAN         bool           `json:"allowWan"`
 	TLS              bool           `json:"tls"`
-	Listen           string         `json:"listen"`
 	Notifications    []Notification `json:"notifications"`
 }
 

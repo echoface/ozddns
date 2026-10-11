@@ -603,7 +603,6 @@ func (r settingsRepo) Save(ctx context.Context, s domain.Settings) error {
 func defaultSettings() domain.Settings {
 	return domain.Settings{
 		Language: "en", Theme: "light", Timezone: "UTC", DefaultInterval: 5,
-		Listen:               "127.0.0.1:9876",
 		SchedulerTickSeconds: 5, SchedulerWorkers: 4, RunOnStart: true,
 	}
 }

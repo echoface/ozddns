@@ -41,12 +41,20 @@ RUN apk add --no-cache ca-certificates tzdata curl \
 
 COPY --from=build /out/ozddns /usr/local/bin/ozddns
 
+# The bind address is deployment config, read from the environment (or
+# config.yaml / --listen) — never from the database. The health check below
+# resolves the same address, so it stays in sync if you change this.
+ENV OZDDNS_LISTEN=0.0.0.0:9876
+
 USER ozddns
 VOLUME ["/data"]
+# Run from the data volume so the auto-created config.yaml lands somewhere
+# writable and persistent (default path ./config.yaml -> /data/config.yaml).
+WORKDIR /data
 EXPOSE 9876
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -fsS http://127.0.0.1:9876/api/v1/status || exit 1
+  CMD ["ozddns", "health"]
 
 ENTRYPOINT ["ozddns"]
-CMD ["--db", "/data/ozddns.db", "serve", "--listen", "0.0.0.0:9876"]
+CMD ["--db", "/data/ozddns.db", "serve"]

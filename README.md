@@ -132,6 +132,38 @@ Follow the logs with:
 docker compose logs -f
 ```
 
+### Deployment configuration file
+
+How the process runs — the bind address, the database path, the log level — is
+*deployment* configuration. It is resolved once at start-up and is never stored
+in the database or edited from the panel (changing the bind address from the
+panel would drop the very connection you are using).
+
+Set it with an optional `config.yaml` next to the binary:
+
+```yaml
+# config.yaml
+listen: 0.0.0.0:9876
+db: /data/ozddns.db
+logLevel: info
+```
+
+The file is optional: if it is missing when `serve` starts, OzDDNS writes this
+annotated default and keeps going (a read-only directory is not an error). Point
+at a different path with `--config` or `OZDDNS_CONFIG`; `--config` also works
+after the subcommand, as in `ozddns serve --config /etc/ozddns/config.yaml`.
+
+Every deployment setting follows the same precedence, so the more specific
+source always wins:
+
+- **`--listen` / `--db` / `--log-level` flags** (highest)
+- **environment variables** — `OZDDNS_LISTEN`, `OZDDNS_DB`, `OZDDNS_LOG_LEVEL`
+- **`config.yaml`** — path taken from `--config` or `OZDDNS_CONFIG` (default `./config.yaml`)
+- **built-in defaults** — `127.0.0.1:9876`, `./ozddns.db`, `info` (lowest)
+
+`ozddns health` probes the running daemon's `/healthz` endpoint using the same
+resolution, so container and script health checks never guess a port.
+
 ## First configuration
 
 The web panel is the shortest setup path:
@@ -232,7 +264,9 @@ See `internal/provider/custom/custom.go` for the smallest built-in adapter.
 
 ## Security
 
-- The default listen address is `127.0.0.1:9876`.
+- The bind address is deployment configuration, not a stored setting. It is
+  resolved at start-up from `--listen`, `OZDDNS_LISTEN`, or `config.yaml`
+  (default `127.0.0.1:9876`); the panel only shows it.
 
 - HTTP Basic authentication is enabled after an administrator password is set.
 

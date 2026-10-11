@@ -91,19 +91,16 @@ func (a *App) Import(ctx context.Context, b ConfigBundle, replace bool) (ImportS
 		}
 		stats.Jobs++
 	}
-	if !replace && b.Settings.Listen == "" && b.Settings.Language == "" {
+	if !replace && b.Settings.Language == "" && len(b.Settings.Notifications) == 0 {
 		return stats, nil
 	}
-	if b.Settings.Language != "" || b.Settings.Listen != "" || len(b.Settings.Notifications) > 0 {
+	if b.Settings.Language != "" || len(b.Settings.Notifications) > 0 {
 		existing, err := a.Store.Settings().Get(ctx)
 		if err != nil {
 			return stats, err
 		}
 		b.Settings.PasswordHash = existing.PasswordHash
 		b.Settings.PasswordSet = existing.PasswordHash != ""
-		if b.Settings.Listen == "" {
-			b.Settings.Listen = existing.Listen
-		}
 		if err := a.Store.Settings().Save(ctx, b.Settings); err != nil {
 			return stats, err
 		}

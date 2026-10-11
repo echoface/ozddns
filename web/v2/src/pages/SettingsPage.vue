@@ -38,6 +38,19 @@ const timezones = ["UTC", ...(((Intl as any).supportedValuesOf?.("timeZone") as 
 ])];
 const importInput = ref<HTMLInputElement | null>(null);
 const tabsElement = ref<HTMLElement | null>(null);
+const testingId = ref("");
+
+// Where the bind address came from: start-up flag, environment variable,
+// config.yaml, or the built-in default. Shown so the address is never a mystery.
+const listenSourceLabel = computed(() => {
+  const labels: Record<string, string> = {
+    flag: t("start-up flag"),
+    env: t("environment variable"),
+    config: t("config.yaml"),
+    default: t("built-in default")
+  };
+  return labels[data.runtime.listenSource] || t("built-in default");
+});
 
 watch(tab, async (value) => {
   await nextTick();
@@ -58,7 +71,6 @@ watch(() => data.settings, (settings) => {
     tick: settings.general.schedulerTickSeconds,
     workers: settings.general.schedulerWorkers,
     runOnStart: settings.general.runOnStart,
-    listen: data.runtime.listen,
     username: settings.security.username,
     password: "",
     password2: ""
@@ -79,7 +91,6 @@ async function saveSettings(): Promise<void> {
     schedulerWorkers: Number(form.workers),
     runRetentionDays: Number(form.retention),
     runOnStart: !!form.runOnStart,
-    listen: form.listen,
     username: form.username,
     notifications: data.settings.notify.webhooks
   };
@@ -98,6 +109,8 @@ async function saveSettings(): Promise<void> {
 }
 
 async function testSource(source: any): Promise<void> {
+  if (testingId.value) return;
+  testingId.value = source.id;
   try {
     if (bootState.value === "offline") {
       notify("ok", t("Resolved {ip}", { ip: source.family === "v6" ? "2001:db8::23" : "203.0.113.42" }), t("This is the address the task would use."));
@@ -106,6 +119,7 @@ async function testSource(source: any): Promise<void> {
       notify(result.ok ? "ok" : "err", result.ok ? t("Resolved {ip}", { ip: result.ip }) : t("Could not resolve an address"), result.ok ? t("This is the address the task would use.") : result.error);
     }
   } catch (error) { fail(error, t("Resolve failed")); }
+  finally { testingId.value = ""; }
 }
 
 function removeSource(source: any): void {
@@ -223,7 +237,14 @@ async function copy(value: string): Promise<void> {
     </div>
     <div class="card pad">
       <div class="strong mb16">{{ t("Server") }}</div>
-      <div class="field"><label>{{ t("Listen address") }}</label><input v-model="form.listen" class="input mono"><span class="help">{{ t("Changes apply the next time OzDDNS starts.") }}</span></div>
+      <div class="field">
+        <label>{{ t("Listen address") }} <span class="tiny muted">· {{ t("Read-only") }}</span></label>
+        <div class="hstack wrap" style="gap:8px">
+          <input class="input mono" :value="data.runtime.listen || '—'" readonly type="text" aria-readonly="true" :aria-label="t('Listen address')">
+          <Pill kind="mute">{{ listenSourceLabel }}</Pill>
+        </div>
+        <span class="help">{{ t("Fixed at start-up — it is deployment configuration, not a panel setting. To change it, set --listen, the OZDDNS_LISTEN environment variable, or the listen key in config.yaml, then restart OzDDNS.") }}</span>
+      </div>
       <div class="callout mb16" v-html="t('Loopback by default. {c} is only reachable from this host. Bind {zero} to expose the panel — pair it with authentication.', { c: '<code>127.0.0.1:9876</code>', zero: '<code>0.0.0.0</code>' })" />
     </div>
   </div>
@@ -264,7 +285,7 @@ async function copy(value: string): Promise<void> {
           <td class="row-title">{{ source.name }}<span class="row-sub mono sub-target">{{ source.target }}</span></td>
           <td class="col-type">{{ data.ipSourceTypes.find(item => item.id === source.type)?.label || source.type }}</td><td><Pill :kind="source.family === 'v6' ? 'violet' : 'info'">{{ source.family.toUpperCase() }}</Pill></td>
           <td class="mono tiny col-target">{{ source.target }}</td><td class="num">{{ data.jobs.filter(job => job.ipSourceId === source.id).length }}</td>
-          <td class="r"><div class="hstack" style="justify-content:flex-end;gap:6px"><button class="btn sm" @click="testSource(source)"><Icon name="refresh" /><span class="lbl">{{ t("Test") }}</span></button><button class="icon-btn" :aria-label="t('Edit')" @click="modal = { type: 'source', source }"><Icon name="pencil" /></button><button class="icon-btn act-copy" :aria-label="t('Copy target')" @click="copy(source.target)"><Icon name="copy" /></button><button class="icon-btn" :aria-label="t('Delete')" @click="removeSource(source)"><Icon name="trash" /></button></div></td>
+          <td class="r"><div class="hstack" style="justify-content:flex-end;gap:6px"><button class="btn sm" :disabled="testingId === source.id" @click="testSource(source)"><Icon :class="testingId === source.id ? 'spin' : ''" :name="testingId === source.id ? 'loader' : 'refresh'" /><span class="lbl">{{ t(testingId === source.id ? "Testing…" : "Test") }}</span></button><button class="icon-btn" :disabled="testingId !== ''" :aria-label="t('Edit')" @click="modal = { type: 'source', source }"><Icon name="pencil" /></button><button class="icon-btn act-copy" :aria-label="t('Copy target')" @click="copy(source.target)"><Icon name="copy" /></button><button class="icon-btn" :disabled="testingId !== ''" :aria-label="t('Delete')" @click="removeSource(source)"><Icon name="trash" /></button></div></td>
         </tr></tbody>
       </table></div>
       <EmptyState v-else icon="globe" title="No IP sources yet" body="Add one to tell OzDDNS where this host's address comes from, then point a task at it."><button class="btn primary" @click="modal = { type: 'source' }"><Icon name="plus" />{{ t("Add source") }}</button></EmptyState>

@@ -27,11 +27,23 @@ type App struct {
 	Log        *slog.Logger
 	DBDriver   string
 	DBPath     string
-	ListenAddr string
+	// ListenAddr/ListenSource are the resolved bind address and where it came
+	// from (flag | env | config | default). They are set by the CLI at start-up;
+	// the bind address is deployment config and is never stored in the database.
+	ListenAddr   string
+	ListenSource string
 
 	healthMu sync.RWMutex
 	health   map[string]providerHealth
 	started  time.Time
+
+	// Public-address cache. Resolving it hits external "what is my IP"
+	// endpoints, so bootstrap reads the cache and a background probe keeps it
+	// warm instead of blocking the panel on a slow (often IPv6) probe.
+	ipMu      sync.RWMutex
+	ipCache   PublicIP
+	ipFilled  time.Time
+	ipFilling bool
 }
 
 type providerHealth struct {

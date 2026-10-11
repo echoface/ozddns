@@ -63,8 +63,15 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, st)
 }
 
+// handleHealth answers the liveness probe. It stays deliberately cheap and
+// unauthenticated so it never depends on the database, the password setting or
+// any outbound network access.
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
 func (s *Server) handleIP(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.App.CurrentIP(r.Context()))
+	writeJSON(w, http.StatusOK, s.App.ResolveIP(r.Context()))
 }
 
 func (s *Server) handleScheduler(w http.ResponseWriter, r *http.Request) {

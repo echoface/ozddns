@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "../components/Icon.vue";
 import { Banner, DiffValue, PageHead, StatusPill } from "../components/UiKit";
@@ -13,8 +13,13 @@ const enabled = computed(() => data.jobs.filter((job) => job.enabled));
 const records = computed(() => data.providers.reduce((sum, provider) => sum + provider.records, 0));
 const failures24h = computed(() => data.runs.filter((run) => run.status === "failed" && Date.now() - run.startedAt < 86400000).length);
 const changes24h = computed(() => data.runs.filter((run) => run.status === "success" && Date.now() - run.startedAt < 86400000).length);
+const ipLoading = ref(false);
 
-async function refreshIP(): Promise<void> {
+// The public address is resolved lazily: bootstrap only carries whatever was
+// cached, so the Overview fetches the live value once it actually needs it.
+async function loadIP(): Promise<void> {
+  if (ipLoading.value) return;
+  ipLoading.value = true;
   try {
     if (bootState.value === "offline") {
       data.ipInfo.v4Checked = Date.now();
@@ -27,9 +32,19 @@ async function refreshIP(): Promise<void> {
       data.ipInfo.v6Source = ip.v6Source || "—";
       data.ipInfo.v4Checked = data.ipInfo.v6Checked = Date.parse(ip.checkedAt);
     }
+  } finally {
+    ipLoading.value = false;
+  }
+}
+
+async function refreshIP(): Promise<void> {
+  try {
+    await loadIP();
     notify("ok", t("IP refreshed"), t("Re-checked the public address."));
   } catch (error) { fail(error, t("Refresh failed")); }
 }
+
+onMounted(() => { loadIP().catch(() => {}); });
 
 async function execute(job: Job, event: MouseEvent): Promise<void> {
   event.stopPropagation();
@@ -51,7 +66,8 @@ async function execute(job: Job, event: MouseEvent): Promise<void> {
   <div class="grid cols-4 mb24 reveal">
     <div class="card stat">
       <span class="lab"><Icon name="globe" />{{ t("Public IPv4") }}</span>
-      <span class="val">{{ data.ipInfo.v4 }}</span>
+      <span v-if="ipLoading && !data.ipInfo.v4" class="sk" style="width:132px;height:26px" />
+      <span v-else class="val">{{ data.ipInfo.v4 || "—" }}</span>
       <span class="foot">{{ t("via {src} · {ago}", { src: data.ipInfo.v4Source, ago: fmtAgo(data.ipInfo.v4Checked) }) }}</span>
     </div>
     <div class="card stat">
@@ -78,7 +94,8 @@ async function execute(job: Job, event: MouseEvent): Promise<void> {
           <span class="lab stat" style="padding:0"><span class="eyebrow">{{ t("Public IPv4") }}</span></span>
           <span class="pill mute"><span class="dot" />{{ fmtAgo(data.ipInfo.v4Checked) }}</span>
         </div>
-        <div class="ipv4 mt8">{{ data.ipInfo.v4 }}</div>
+        <div v-if="ipLoading && !data.ipInfo.v4" class="sk mt8" style="width:220px;height:30px" />
+        <div v-else class="ipv4 mt8">{{ data.ipInfo.v4 || "—" }}</div>
         <div class="row-sub mt8">{{ t("Source · {s} · used by {n} tasks", { s: data.ipInfo.v4Source, n: data.jobs.length }) }}</div>
         <div class="hstack mt16">
           <button class="btn sm" @click="refreshIP"><Icon name="refresh" />{{ t("Refresh IP") }}</button>
@@ -90,7 +107,8 @@ async function execute(job: Job, event: MouseEvent): Promise<void> {
           <span class="eyebrow">{{ t("Public IPv6") }}</span>
           <span class="pill mute"><span class="dot" />{{ fmtAgo(data.ipInfo.v6Checked) }}</span>
         </div>
-        <div class="ipv6 mt8">{{ data.ipInfo.v6 }}</div>
+        <div v-if="ipLoading && !data.ipInfo.v6" class="sk mt8" style="width:220px;height:30px" />
+        <div v-else class="ipv6 mt8">{{ data.ipInfo.v6 || "—" }}</div>
         <div class="row-sub mt8">{{ t("Source · {s}", { s: data.ipInfo.v6Source }) }}</div>
         <div class="callout mt16">{{ t("Some hosts rotate their IPv6 prefix daily. OzDDNS writes only when the resolved address changes.") }}</div>
       </div>

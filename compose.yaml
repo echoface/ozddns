@@ -1,6 +1,10 @@
 # OzDDNS — single-container deployment.
 # The panel is published to the host loopback only; change the ports line to
 # "9876:9876" if you really want to expose it, and set a password first.
+#
+# The listen address is deployment config: it comes from OZDDNS_LISTEN (below),
+# the --listen flag, or config.yaml — not from the panel/database. If you change
+# the port, change OZDDNS_LISTEN and the ports mapping together.
 services:
   ozddns:
     build: .
@@ -13,5 +17,6 @@ services:
       - ./data:/data
     environment:
       OZDDNS_DB: /data/ozddns.db
+      OZDDNS_LISTEN: 0.0.0.0:9876
       TZ: Asia/Shanghai
-    command: ["--db", "/data/ozddns.db", "serve", "--listen", "0.0.0.0:9876"]
+    command: ["--db", "/data/ozddns.db", "serve"]

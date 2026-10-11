@@ -250,8 +250,9 @@ func TestSettingsPatchAndAuth(t *testing.T) {
 	if got["timezone"] != "Asia/Shanghai" {
 		t.Fatalf("timezone = %v", got["timezone"])
 	}
-	if got["listen"] != "127.0.0.1:9876" { // default preserved, not blanked by the patch
-		t.Fatalf("listen was clobbered: %v", got["listen"])
+	if _, present := got["listen"]; present {
+		// The bind address is deployment config, not a stored setting.
+		t.Fatalf("settings should not expose listen: %v", got["listen"])
 	}
 
 	// Enabling a password must start rejecting anonymous requests.

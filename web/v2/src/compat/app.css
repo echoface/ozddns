@@ -524,6 +524,8 @@ button.step.on:hover { background: var(--coral-050); }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .rise { animation: rise .45s var(--ease-out) both; }
 .reveal > * { animation: rise .5s var(--ease-out) both; }
+.spin { animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .reveal > *:nth-child(1){animation-delay:.02s}.reveal > *:nth-child(2){animation-delay:.06s}.reveal > *:nth-child(3){animation-delay:.10s}
 .reveal > *:nth-child(4){animation-delay:.14s}.reveal > *:nth-child(5){animation-delay:.18s}.reveal > *:nth-child(6){animation-delay:.22s}
 .reveal > *:nth-child(7){animation-delay:.26s}.reveal > *:nth-child(8){animation-delay:.30s}
