@@ -114,7 +114,12 @@ docker compose up -d --build  # 或在本地构建同一镜像
 - 运行已发布镜像 `ghcr.io/echoface/ozddns:latest`，也可用 `OZDDNS_IMAGE`
   指定其他标签（例如 `OZDDNS_IMAGE=ghcr.io/echoface/ozddns:1.1.0`）；
 
-- 将面板发布到 `127.0.0.1:9876`；
+- 默认使用**host 网络模式**，让 `interface` 类型的 IP 来源能读取**宿主机**网卡
+  （桥接容器只能看到自己的网卡）。该模式没有端口映射，面板由 `OZDDNS_LISTEN`
+  绑定，默认 `127.0.0.1:9876`；设为 `0.0.0.0:9876` 才会对外暴露；
+
+- 在 Docker Desktop（macOS/Windows）上请去掉 `network_mode`、恢复 `ports`
+  映射并把 `OZDDNS_LISTEN` 设为 `0.0.0.0:9876`，此时网卡来源只能看到容器自身网卡；
 
 - 将 SQLite 数据库存放在 `./data`；
 

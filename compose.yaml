@@ -1,10 +1,20 @@
 # OzDDNS — single-container deployment.
-# The panel is published to the host loopback only; change the ports line to
-# "9876:9876" if you really want to expose it, and set a password first.
+#
+# Networking: the container uses host networking by default so "interface" IP
+# sources can read the *host's* NICs — a bridged container only ever sees its
+# own veth pair, never en0/eth0 on the host. Because there is no port mapping in
+# host mode, the panel is exposed by OZDDNS_LISTEN instead; it stays on loopback
+# (127.0.0.1) so only this host can reach it. Set it to 0.0.0.0:9876 to expose
+# the panel — set a password first.
+#
+# Host networking is Linux-only. On Docker Desktop (macOS/Windows) either enable
+# host networking in settings, or drop network_mode, restore the ports mapping
+# below and switch OZDDNS_LISTEN back to 0.0.0.0:9876 — interface IP sources will
+# then only see the container's own interfaces.
 #
 # The listen address is deployment config: it comes from OZDDNS_LISTEN (below),
-# the --listen flag, or config.yaml — not from the panel/database. If you change
-# the port, change OZDDNS_LISTEN and the ports mapping together.
+# the --listen flag, or config.yaml — not from the panel/database. Under host
+# networking the port comes only from OZDDNS_LISTEN (there is no ports mapping).
 #
 # The image is the published multi-arch build. Pin a version for reproducible
 # deployments, e.g. OZDDNS_IMAGE=ghcr.io/echoface/ozddns:1.1.0 docker compose up -d
@@ -21,12 +31,14 @@ services:
     pull_policy: missing
     container_name: ozddns
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:9876:9876"
+    network_mode: host
+    # Bridged mode instead (no host NIC access):
+    # ports:
+    #   - "127.0.0.1:9876:9876"
     volumes:
       - ./data:/data
     environment:
       OZDDNS_DB: /data/ozddns.db
-      OZDDNS_LISTEN: 0.0.0.0:9876
+      OZDDNS_LISTEN: 127.0.0.1:9876
       TZ: Asia/Shanghai
     command: ["--db", "/data/ozddns.db", "serve"]

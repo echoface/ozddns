@@ -122,7 +122,14 @@ The included Compose configuration:
 - runs the published image `ghcr.io/echoface/ozddns:latest`, or any tag you pass
   as `OZDDNS_IMAGE` (e.g. `OZDDNS_IMAGE=ghcr.io/echoface/ozddns:1.1.0`);
 
-- publishes the panel on `127.0.0.1:9876`;
+- uses **host networking** so `interface` IP sources can read the host's NICs
+  (a bridged container only sees its own interfaces). There is no port mapping
+  in this mode — the panel is bound by `OZDDNS_LISTEN`, defaulting to
+  `127.0.0.1:9876`; set it to `0.0.0.0:9876` to expose the panel;
+
+- on Docker Desktop (macOS/Windows) drop `network_mode`, restore the `ports`
+  mapping and set `OZDDNS_LISTEN=0.0.0.0:9876`; interface sources then only see
+  the container's interfaces;
 
 - stores the SQLite database under `./data`;
 
