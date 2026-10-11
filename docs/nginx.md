@@ -79,10 +79,24 @@ API calls to the right place.
 
 ## Troubleshooting
 
-- **Blank page, 404s for the assets** — the panel is being served from a URL the
-  daemon was not told about. Set `--base-path` (or `OZDDNS_BASE_PATH`) to the
-  prefix the proxy mounts, then restart. Check which value is in force with
-  `curl -s https://host/ddns/api/v1/status` and look at `basePath`.
+- **Blank page; assets 404, or are refused for "MIME type text/html"** — the
+  browser asked for `/assets/...` *at the domain root* instead of
+  `/prefix/assets/...`, so the document resolved its relative URLs from one
+  level too high. That means the daemon did not know its prefix (nothing tells
+  the browser where `./assets` lives) and/or the proxy strips the prefix
+  (`proxy_pass http://host:9876/;` — the trailing slash) so the daemon never
+  sees the public path and cannot redirect to the canonical `/prefix/`.
+  Verify both sides:
+
+  ```bash
+  curl -s https://host/prefix/api/v1/status   # "basePath":"/prefix"
+  curl -s https://host/prefix/ | grep -o '<base href="[^"]*"'   # <base href="/prefix/">
+  ```
+
+  If `basePath` is `/`, the container is not getting `OZDDNS_BASE_PATH`. After
+  changing a container's environment, recreate it
+  (`docker compose up -d --force-recreate ozddns`) — a plain `restart` keeps the
+  environment it was created with.
 
 - **`/ddns` without the trailing slash** — the daemon answers with a 301 to
   `/ddns/` itself, so it works whether or not the proxy also redirects. Nothing

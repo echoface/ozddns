@@ -11,3 +11,5 @@
 *.db-wal
 coverage.out
 .DS_Store
+
+/config.yaml
