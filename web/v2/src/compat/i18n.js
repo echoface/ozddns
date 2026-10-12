@@ -672,6 +672,8 @@
       'Preview unavailable': '无法预演',
       'Connect to the OzDDNS server to compute a provider diff.': '连接到 OzDDNS 服务后才能计算服务商差异。',
       'Preview failed': '预演失败',
+      'Previewing…': '正在预演…',
+      'Running…': '运行中…',
 
       /* --- sign-in --- */
       'Signed in as {user}': '已登录为 {user}',
@@ -1316,6 +1318,8 @@
       'Preview unavailable': 'プレビューを利用できません',
       'Connect to the OzDDNS server to compute a provider diff.': 'プロバイダーの差分を計算するには OzDDNS サーバーに接続してください。',
       'Preview failed': 'プレビューに失敗しました',
+      'Previewing…': 'プレビュー中…',
+      'Running…': '実行中…',
 
       /* --- sign-in --- */
       'Signed in as {user}': '{user} としてサインインしました',

@@ -18,6 +18,11 @@ help: ## Show this help
 web-v2: ## Build the Vue management panel into web/v2/dist
 	cd web/v2 && npm ci && npm run build
 
+.PHONY: hooks
+hooks: ## Install the version-controlled Git hooks (core.hooksPath)
+	git config core.hooksPath .githooks
+	@echo "Git hooks installed from .githooks (pre-push rebuilds web/v2)"
+
 .PHONY: build
 build: web-v2 ## Build the single binary into ./bin/ozddns
 	@mkdir -p bin

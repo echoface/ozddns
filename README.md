@@ -336,6 +336,7 @@ make test-race   # run tests with the race detector
 make vet         # run go vet
 make cover       # write coverage.out
 make docker      # build the container image
+make hooks       # install the Git hooks for this clone
 ```
 
 Frontend development:
@@ -349,6 +350,16 @@ npm run dev
 The generated `web/v2/dist` directory is intentionally committed because
 `go:embed`, `go install`, and direct Go tests require an embeddable panel to be
 present.
+
+A version-controlled `pre-push` hook keeps that committed panel in sync: it
+rebuilds `web/v2` and refuses the push when `web/v2/dist` no longer matches the
+sources. Enable it once per clone:
+
+```bash
+make hooks
+```
+
+Push with `--no-verify` to bypass it for a single push.
 
 ### Publishing releases
 

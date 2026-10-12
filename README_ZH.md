@@ -310,6 +310,7 @@ make test-race   # 使用竞态检测器运行测试
 make vet         # 运行 go vet
 make cover       # 生成 coverage.out
 make docker      # 构建容器镜像
+make hooks       # 为当前克隆安装 Git 钩子
 ```
 
 前端开发：
@@ -322,6 +323,15 @@ npm run dev
 
 生成的 `web/v2/dist` 会被有意提交到仓库，因为 `go:embed`、`go install`
 以及直接执行 Go 测试都需要仓库中存在可嵌入的面板资源。
+
+仓库内置了纳入版本管理的 `pre-push` 钩子，用于保持该目录同步：推送前会重新构建
+`web/v2`，若 `web/v2/dist` 与源码不一致则拒绝推送。每个克隆安装一次即可：
+
+```bash
+make hooks
+```
+
+如需临时跳过，可在推送时使用 `--no-verify`。
 
 ### 发布版本
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Icon from "../components/Icon.vue";
 import RunRecords from "../components/RunRecords.vue";
@@ -27,26 +27,42 @@ const router = useRouter();
 const job = computed(() => getJob(String(route.params.id)));
 const provider = computed(() => job.value ? getProvider(job.value.providerId) : undefined);
 const source = computed(() => job.value ? getSource(job.value.ipSourceId) : undefined);
+// Both actions talk to the provider and can take a while, so each one guards
+// against a double submit and reports progress on its own button.
+const previewing = ref(false);
+const running = ref(false);
 const runs = computed(() => {
   if (!job.value) return [];
   return [...data.runs].filter((run) => run.jobId === job.value?.id).sort((a, b) => b.startedAt - a.startedAt).slice(0, 8);
 });
 
 async function execute(): Promise<void> {
-  if (!job.value) return;
-  try { await runJob(job.value); } catch (error) { fail(error, t("Run failed")); }
+  if (!job.value || running.value) return;
+  running.value = true;
+  try {
+    await runJob(job.value);
+  } catch (error) {
+    fail(error, t("Run failed"));
+  } finally {
+    running.value = false;
+  }
 }
 
 async function preview(): Promise<void> {
-  if (!job.value) return;
+  if (!job.value || previewing.value) return;
   if (bootState.value === "offline") {
     notify("info", t("Preview unavailable"), t("Connect to the OzDDNS server to compute a provider diff."));
     return;
   }
+  previewing.value = true;
   try {
     const diff = await api.post(`/jobs/${job.value.id}/dry-run`);
     modal.value = { type: "dry-run", job: job.value, diff };
-  } catch (error) { fail(error, t("Preview failed")); }
+  } catch (error) {
+    fail(error, t("Preview failed"));
+  } finally {
+    previewing.value = false;
+  }
 }
 
 async function changeEnabled(): Promise<void> {
@@ -79,8 +95,12 @@ function remove(): void {
         <p class="page-sub">{{ t("{src} → {provider} · {n} record(s)", { src: source?.name || "—", provider: getProviderType(provider?.type || "")?.label || "—", n: job.targets.length }) }}</p>
       </div>
       <div class="page-actions">
-        <button class="btn" @click="preview"><Icon name="eye" />{{ t("Preview") }}</button>
-        <button class="btn" @click="execute"><Icon name="play" />{{ t("Run now") }}</button>
+        <button class="btn" :disabled="previewing" @click="preview">
+          <Icon :class="previewing ? 'spin' : ''" :name="previewing ? 'loader' : 'eye'" />{{ t(previewing ? "Previewing…" : "Preview") }}
+        </button>
+        <button class="btn" :disabled="running" @click="execute">
+          <Icon :class="running ? 'spin' : ''" :name="running ? 'loader' : 'play'" />{{ t(running ? "Running…" : "Run now") }}
+        </button>
         <button class="btn primary" @click="router.push(`/jobs/${job.id}/edit`)"><Icon name="pencil" />{{ t("Edit") }}</button>
         <button class="btn danger" @click="remove"><Icon name="trash" />{{ t("Delete") }}</button>
       </div>

@@ -1,0 +1,47 @@
+#!/bin/sh
+#
+# pre-push hook: rebuild the Vue panel before allowing a push.
+#
+# The panel under web/v2 is compiled into web/v2/dist and committed, because the
+# Go binary embeds it with go:embed. A stale dist would ship a UI that does not
+# match its sources, so this hook rebuilds the panel and refuses the push when
+# the committed files are out of date.
+#
+# Install it once per clone with `make hooks` (sets core.hooksPath=.githooks).
+# Bypass a single push with `git push --no-verify`.
+
+set -eu
+
+web_dir="web/v2"
+
+log() { printf 'pre-push: %s\n' "$*" >&2; }
+
+if [ ! -f "$web_dir/package.json" ]; then
+    log "no frontend at $web_dir, nothing to verify"
+    exit 0
+fi
+
+if ! command -v npm >/dev/null 2>&1; then
+    log "npm not found, cannot verify the frontend build"
+    log "install Node.js 22+ and npm, or push with --no-verify"
+    exit 1
+fi
+
+if [ ! -d "$web_dir/node_modules" ]; then
+    log "installing frontend dependencies (npm ci)"
+    (cd "$web_dir" && npm ci)
+fi
+
+log "building frontend (npm run build)"
+(cd "$web_dir" && npm run build)
+
+if ! git status --porcelain -- "$web_dir/dist" | grep -q .; then
+    log "frontend build is up to date"
+    exit 0
+fi
+
+log "the committed $web_dir/dist does not match a fresh build:"
+git status --short -- "$web_dir/dist" >&2
+log "commit the rebuilt panel, then push again:"
+log "  git add $web_dir/dist && git commit -m 'chore(web): rebuild panel'"
+exit 1

@@ -3,9 +3,8 @@ import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "../components/Icon.vue";
 import { Banner, DiffValue, PageHead, StatusPill } from "../components/UiKit";
-import { fmtAgo, fmtIn, t } from "../lib";
-import { api, bootState, data, fail, getProvider, getProviderType, notify, refresh, runJob } from "../store";
-import type { Job } from "../types";
+import { fmtAgo, t } from "../lib";
+import { api, bootState, data, fail, getProvider, getProviderType, notify, refresh } from "../store";
 
 const router = useRouter();
 const failing = computed(() => data.jobs.filter((job) => job.lastStatus === "failed"));
@@ -45,11 +44,6 @@ async function refreshIP(): Promise<void> {
 }
 
 onMounted(() => { loadIP().catch(() => {}); });
-
-async function execute(job: Job, event: MouseEvent): Promise<void> {
-  event.stopPropagation();
-  try { await runJob(job); } catch (error) { fail(error, t("Run failed")); }
-}
 </script>
 
 <template>
@@ -126,7 +120,7 @@ async function execute(job: Job, event: MouseEvent): Promise<void> {
     <div class="card table-card-scroll">
       <div class="card-head"><span class="h">{{ t("Sync tasks") }}</span><span class="spacer" /><RouterLink class="btn sm ghost" to="/jobs">{{ t("View all") }} <Icon name="chevron-right" /></RouterLink></div>
       <table class="table clickable">
-        <thead><tr><th>{{ t("Task") }}</th><th>{{ t("Record") }}</th><th>{{ t("Last result") }}</th><th>{{ t("Ran") }}</th><th>{{ t("Next") }}</th><th /></tr></thead>
+        <thead><tr><th>{{ t("Task") }}</th><th>{{ t("Record") }}</th><th>{{ t("Last result") }}</th></tr></thead>
         <tbody>
           <tr v-for="job in data.jobs.slice(0,6)" :key="job.id" @click="router.push(`/jobs/${job.id}`)">
             <td><div class="row-title">{{ job.name }}</div><div class="row-sub">{{ getProviderType(getProvider(job.providerId)?.type || "")?.label }}</div></td>
@@ -137,9 +131,6 @@ async function execute(job: Job, event: MouseEvent): Promise<void> {
               </div>
             </td>
             <td><StatusPill :status="job.lastStatus" /></td>
-            <td class="mono tiny">{{ fmtAgo(job.lastRun) }}</td>
-            <td class="mono tiny">{{ job.enabled ? fmtIn(job.nextRun) : t("paused") }}</td>
-            <td class="r"><button class="btn sm" @click="execute(job, $event)"><Icon name="play" />{{ t("Run") }}</button></td>
           </tr>
         </tbody>
       </table>
