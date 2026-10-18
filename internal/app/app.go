@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -50,6 +51,17 @@ type App struct {
 	ipCache   PublicIP
 	ipFilled  time.Time
 	ipFilling bool
+
+	// configMu keeps configuration-dependent work on a coherent snapshot.
+	// Imports take the write lock; reads, edits and runs take the read lock.
+	// In particular, a replace import cannot delete a task while that task is
+	// still talking to a provider and later write an orphaned run/state row.
+	configMu sync.RWMutex
+
+	// Runs of the same job are serialized across manual, "run all" and scheduled
+	// triggers. A bounded stripe table avoids an ever-growing per-job mutex map;
+	// hash collisions merely serialize two unrelated jobs occasionally.
+	jobGates [128]chan struct{}
 }
 
 type providerHealth struct {
@@ -71,13 +83,21 @@ func New(store storage.Store, reg *provider.Registry, srcs *ipsource.Registry, l
 		started:    time.Now(),
 		DBDriver:   "sqlite",
 	}
+	for i := range a.jobGates {
+		a.jobGates[i] = make(chan struct{}, 1)
+	}
 	a.Scheduler = engine.NewScheduler(store.Jobs(), store.States(), a, log)
 	return a
 }
 
 // Start applies the persisted scheduler settings and begins background work.
-func (a *App) Start(ctx context.Context) {
+// A paused start overrides the persisted pause flag before the scheduler loop
+// begins, so --no-scheduler cannot race its run-on-start dispatch.
+func (a *App) Start(ctx context.Context, paused bool) {
 	a.ApplySchedulerSettings(ctx)
+	if paused {
+		a.Scheduler.SetRunning(false)
+	}
 	a.Scheduler.Start(ctx)
 	a.RunRetentionLoop(ctx)
 }
@@ -128,6 +148,15 @@ func (a *App) Uptime() time.Duration { return time.Since(a.started) }
 
 // RunJob executes a job now and records the run. It implements engine.JobRunner.
 func (a *App) RunJob(ctx context.Context, jobID string, trigger domain.Trigger) (domain.Run, error) {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
+	release, err := a.acquireJobGate(ctx, jobID)
+	if err != nil {
+		return domain.Run{}, err
+	}
+	defer release()
+
 	job, err := a.Store.Jobs().Get(ctx, jobID)
 	if err != nil {
 		return domain.Run{}, err
@@ -142,36 +171,121 @@ func (a *App) RunJob(ctx context.Context, jobID string, trigger domain.Trigger) 
 	}
 
 	started := time.Now().UTC()
-	state, _ := a.Store.States().Get(ctx, jobID)
-	result, recErr := a.Reconciler.Reconcile(ctx, job, prov, src)
-	finished := time.Now().UTC()
+	state, err := a.Store.States().Get(ctx, jobID)
+	if err != nil {
+		return domain.Run{}, err
+	}
+	run := domain.Run{JobID: jobID, StartedAt: started, Trigger: trigger}
+	addrs := map[string]netip.Addr{}
+	fingerprint := ""
+	if !prov.Enabled {
+		// A disabled provider is a destination the operator has taken out of
+		// service. Never write through it — not even on a manual run — and say
+		// so instead of reporting a puzzling failure.
+		run.Status = domain.StatusSkipped
+		run.Message = "provider is disabled; task skipped"
+		run.OldIP = state.CurrentIP
+	} else {
+		// Resolve the source once: the same address drives both the
+		// run-on-change decision and the reconciliation itself.
+		var planErr error
+		addrs, planErr = a.Reconciler.Plan(ctx, job, src)
+		switch {
+		case planErr != nil:
+			run.Status = domain.StatusFailed
+			run.Message = planErr.Error()
+			run.OldIP = state.CurrentIP
+		default:
+			fingerprint = engine.Fingerprint(job, prov, src, addrs)
+			if a.shouldSkipRun(job, prov, state, fingerprint, trigger) {
+				run.Status = domain.StatusNoChange
+				run.Message = "source address unchanged; provider not contacted"
+				run.OldIP = state.CurrentIP
+				run.NewIP = primaryAddr(addrs)
+				break
+			}
+			result, recErr := a.Reconciler.ReconcileWith(ctx, job, prov, addrs)
+			run.Status, run.OldIP, run.NewIP = result.Status, result.OldIP, result.NewIP
+			run.Message, run.Records, run.Details = result.Message, result.Records, result.Details
+			if recErr != nil {
+				run.Status = domain.StatusFailed
+				run.Message = recErr.Error()
+			}
+		}
+	}
 
-	run := domain.Run{
-		JobID: jobID, StartedAt: started, FinishedAt: finished,
-		DurationMS: int(finished.Sub(started).Milliseconds()),
-		Status:     result.Status, OldIP: result.OldIP, NewIP: result.NewIP,
-		Trigger: trigger, Message: result.Message, Records: result.Records,
-		Details: result.Details,
-	}
-	if recErr != nil {
-		run.Status = domain.StatusFailed
-		run.Message = recErr.Error()
-	}
-	id, err := a.Store.Runs().Insert(ctx, run)
+	finished := time.Now().UTC()
+	run.FinishedAt = finished
+	run.DurationMS = int(finished.Sub(started).Milliseconds())
+
+	nextState := a.nextJobState(job, state, run, fingerprint, finished)
+	id, err := a.Store.Runs().InsertWithState(ctx, run, nextState)
 	if err != nil {
 		return run, err
 	}
 	run.ID = id
+	a.notify(ctx, run, job)
 
-	// Update job runtime state (including the next scheduled run).
+	if run.Status == domain.StatusFailed {
+		return run, fmt.Errorf("%s", run.Message)
+	}
+	return run, nil
+}
+
+// shouldSkipRun reports whether a scheduled run can be skipped without
+// contacting the provider. That is only safe when the last run left the record
+// in sync and nothing about the task (provider, source, targets, resolved
+// address) has changed since. Skipping is enabled by run-on-change-only, and
+// forced for write-only providers, which cannot be read back and so have
+// nothing to learn from a write of the value we already wrote.
+//
+// A manual "run now" is never skipped: the user asked for it explicitly, and it
+// is the way to force a re-sync after the record was changed outside OzDDNS.
+func (a *App) shouldSkipRun(job domain.Job, prov domain.Provider, state domain.JobState, fingerprint string, trigger domain.Trigger) bool {
+	if trigger == domain.TriggerManual {
+		return false
+	}
+	if fingerprint == "" {
+		return false // no address resolved: let the reconciler record a skip
+	}
+	if state.SourceFingerprint == "" || state.SourceFingerprint != fingerprint {
+		return false
+	}
+	switch state.LastStatus {
+	case domain.StatusSuccess, domain.StatusNoChange:
+	default:
+		return false // retry after a failure or a skipped run
+	}
+	if job.RunOnChangeOnly {
+		return true
+	}
+	if f, ok := a.Providers.Get(prov.Type); ok && f.Meta().WriteOnly {
+		return true
+	}
+	return false
+}
+
+// nextJobState derives the runtime state that must be committed with the run.
+func (a *App) nextJobState(job domain.Job, state domain.JobState, run domain.Run, fingerprint string, finished time.Time) domain.JobState {
 	ns := state
-	ns.JobID = jobID
+	ns.JobID = job.ID
 	ns.LastStatus = run.Status
 	ns.LastRunAt = finished
 	ns.NextRunAt = engine.NextRun(job, finished)
 	ns.CurrentIP = firstNonEmpty(run.NewIP, run.OldIP, state.CurrentIP)
 	ns.DesiredIP = run.NewIP
+	// Keep the fingerprint only when the record is known to be in sync, so an
+	// unresolved or failed attempt always retries next time.
+	if run.Status == domain.StatusSuccess || run.Status == domain.StatusNoChange {
+		ns.SourceFingerprint = fingerprint
+	} else {
+		ns.SourceFingerprint = ""
+	}
 	if run.Status == domain.StatusFailed {
+		ns.LastError = run.Message
+	} else if run.Status == domain.StatusSkipped {
+		// Keep the reason a run was skipped so the panel can explain it
+		// ("provider is disabled", "no address available", ...).
 		ns.LastError = run.Message
 	} else {
 		ns.LastError = ""
@@ -179,15 +293,38 @@ func (a *App) RunJob(ctx context.Context, jobID string, trigger domain.Trigger) 
 	if run.Status == domain.StatusSuccess {
 		ns.LastChangedAt = finished
 	}
-	_ = a.Store.States().Upsert(ctx, ns)
+	return ns
+}
 
-	// Best-effort notifications.
-	a.notify(ctx, run, job)
-
-	if run.Status == domain.StatusFailed {
-		return run, fmt.Errorf("%s", run.Message)
+func (a *App) acquireJobGate(ctx context.Context, jobID string) (func(), error) {
+	gate := a.jobGates[jobGateIndex(jobID, len(a.jobGates))]
+	select {
+	case gate <- struct{}{}:
+		return func() { <-gate }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
-	return run, nil
+}
+
+func jobGateIndex(jobID string, buckets int) int {
+	hash := uint32(2166136261)
+	for i := 0; i < len(jobID); i++ {
+		hash ^= uint32(jobID[i])
+		hash *= 16777619
+	}
+	return int(hash % uint32(buckets))
+}
+
+// primaryAddr returns the first resolved address (v4 preferred) so a skipped
+// run can still report a meaningful "desired" address.
+func primaryAddr(addrs map[string]netip.Addr) string {
+	if a, ok := addrs["v4"]; ok {
+		return a.String()
+	}
+	if a, ok := addrs["v6"]; ok {
+		return a.String()
+	}
+	return ""
 }
 
 func firstNonEmpty(vals ...string) string {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -23,11 +24,27 @@ func decode[T any](r *http.Request) (T, error) {
 		return v, nil
 	}
 	dec := json.NewDecoder(r.Body)
-	err := dec.Decode(&v)
-	if err != nil && err.Error() == "EOF" {
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&v); errors.Is(err, io.EOF) {
 		return v, nil
+	} else if err != nil {
+		return v, err
 	}
-	return v, err
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return v, errors.New("request body must contain a single JSON value")
+		}
+		return v, err
+	}
+	return v, nil
+}
+
+func decodeStatus(err error) int {
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		return http.StatusRequestEntityTooLarge
+	}
+	return http.StatusBadRequest
 }
 
 func statusFor(err error) int {
@@ -70,7 +87,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleHealth answers the liveness probe. It stays deliberately cheap and
-// unauthenticated so it never depends on the database, the password setting or
+// unauthenticated so it never depends on the database, authorization state or
 // any outbound network access.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
@@ -85,7 +102,7 @@ func (s *Server) handleScheduler(w http.ResponseWriter, r *http.Request) {
 		Running *bool `json:"running"`
 	}](r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, decodeStatus(err), err.Error())
 		return
 	}
 	if body.Running != nil {
@@ -122,7 +139,7 @@ func (s *Server) handleGetProvider(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 	in, err := decode[app.ProviderInput](r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, decodeStatus(err), err.Error())
 		return
 	}
 	v, err := s.App.CreateProvider(r.Context(), in)
@@ -136,7 +153,7 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	in, err := decode[app.ProviderInput](r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, decodeStatus(err), err.Error())
 		return
 	}
 	v, err := s.App.UpdateProvider(r.Context(), r.PathValue("id"), in)
@@ -187,7 +204,7 @@ func (s *Server) handleListSources(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCreateSource(w http.ResponseWriter, r *http.Request) {
 	in, err := decode[app.IPSourceInput](r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, decodeStatus(err), err.Error())
 		return
 	}
 	v, err := s.App.CreateIPSource(r.Context(), in)
@@ -201,7 +218,7 @@ func (s *Server) handleCreateSource(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleUpdateSource(w http.ResponseWriter, r *http.Request) {
 	in, err := decode[app.IPSourceInput](r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, decodeStatus(err), err.Error())
 		return
 	}
 	v, err := s.App.UpdateIPSource(r.Context(), r.PathValue("id"), in)
@@ -252,7 +269,7 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	in, err := decode[app.JobInput](r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, decodeStatus(err), err.Error())
 		return
 	}
 	v, err := s.App.CreateJob(r.Context(), in)
@@ -266,7 +283,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleUpdateJob(w http.ResponseWriter, r *http.Request) {
 	in, err := decode[app.JobInput](r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, decodeStatus(err), err.Error())
 		return
 	}
 	v, err := s.App.UpdateJob(r.Context(), r.PathValue("id"), in)
@@ -373,7 +390,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	in, err := decode[app.SettingsInput](r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, decodeStatus(err), err.Error())
 		return
 	}
 	v, err := s.App.PatchSettings(r.Context(), in)
@@ -386,26 +403,14 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, v)
 }
 
-func (s *Server) handleSetPassword(w http.ResponseWriter, r *http.Request) {
-	body, err := decode[struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}](r)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := s.App.SetPassword(r.Context(), body.Username, body.Password); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
 func (s *Server) handleTestNotify(w http.ResponseWriter, r *http.Request) {
-	body, _ := decode[struct {
+	body, err := decode[struct {
 		ID string `json:"id"`
 	}](r)
+	if err != nil {
+		writeError(w, decodeStatus(err), err.Error())
+		return
+	}
 	if err := s.App.TestNotification(r.Context(), body.ID); err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
 		return
@@ -426,7 +431,7 @@ func (s *Server) handleExportConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
 	bundle, err := decode[app.ConfigBundle](r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, decodeStatus(err), err.Error())
 		return
 	}
 	stats, err := s.App.Import(r.Context(), bundle, true)
@@ -434,6 +439,5 @@ func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, statusFor(err), err.Error())
 		return
 	}
-	s.App.ApplySchedulerSettings(r.Context())
 	writeJSON(w, http.StatusOK, stats)
 }

@@ -1,4 +1,5 @@
 export type RunStatus = "success" | "nochange" | "failed" | "skipped" | "running";
+export type JobStatus = RunStatus | "not_run";
 export type ThemePreference = "light" | "dark" | "auto";
 
 export interface ProviderField {
@@ -19,6 +20,9 @@ export interface ProviderType {
   tag: string;
   desc: string;
   supportsProxied: boolean;
+  // writeOnly providers cannot be read back (DuckDNS, Namecheap DDNS, custom
+  // webhooks); OzDDNS tracks the last value it wrote instead.
+  writeOnly?: boolean;
   fields: ProviderField[];
 }
 
@@ -27,7 +31,7 @@ export interface Provider {
   name: string;
   type: string;
   enabled: boolean;
-  status: "ok" | "warn" | "err";
+  status: "ok" | "warn" | "err" | "mute";
   statusText: string;
   zones: string[];
   records: number;
@@ -39,7 +43,7 @@ export interface Provider {
 
 export interface Target {
   domain: string;
-  type: "A" | "AAAA" | "CNAME";
+  type: string;
   ttl: number;
   proxied?: boolean;
   comment?: string;
@@ -56,7 +60,7 @@ export interface Job {
   jitter: boolean;
   enabled: boolean;
   lastRun: number | null;
-  lastStatus: RunStatus;
+  lastStatus: JobStatus;
   nextRun: number | null;
   current: string;
   desired: string;
@@ -65,11 +69,14 @@ export interface Job {
   note?: string;
 }
 
-export type RunAction = "created" | "updated" | "unchanged" | "skipped" | "failed";
+// "applied" is a write to a provider that cannot be read back (DuckDNS,
+// Namecheap DDNS, custom webhooks): the address was pushed, but there is no
+// read API to diff it against.
+export type RunAction = "created" | "updated" | "applied" | "unchanged" | "skipped" | "failed";
 
 export interface RunDetail {
   domain: string;
-  type: "A" | "AAAA" | "CNAME";
+  type: string;
   action: RunAction;
   current?: string;
   desired?: string;
@@ -97,7 +104,25 @@ export interface IPSource {
   type: string;
   family: "v4" | "v6";
   target: string;
-  enabled: boolean;
+}
+
+export type IPFamilyStatus = "ok" | "error" | "no_active_tasks";
+
+export interface IPFamilyInfo {
+  address: string;
+  sourceId: string;
+  source: string;
+  sourceTarget: string;
+  tasks: number;
+  status: IPFamilyStatus;
+  error: string;
+  checkedAt: number | null;
+}
+
+export interface IPInfo {
+  v4: IPFamilyInfo;
+  v6: IPFamilyInfo;
+  checkedAt: number | null;
 }
 
 export interface AppData {
@@ -108,11 +133,44 @@ export interface AppData {
   providers: Provider[];
   jobs: Job[];
   runs: Run[];
-  ipInfo: any;
+  ipInfo: IPInfo;
   runtime: any;
   scheduler: any;
   settings: any;
   activity: any[];
+}
+
+export interface AuthState {
+  enabled: boolean;
+  authenticated: boolean;
+  setupPending: boolean;
+  username?: string;
+  recoveryCodesRemaining: number;
+  sessions: number;
+  listen: string;
+  exposed: boolean;
+}
+
+export interface AuthSetupInfo {
+  secret: string;
+  otpauthUrl: string;
+  qrCodeDataUrl: string;
+  expiresAt: string;
+}
+
+export interface AuthSetupResult {
+  recoveryCodes: string[];
+  user: { username: string };
+}
+
+export interface AuthEvent {
+  id: number;
+  at: string;
+  event: string;
+  username?: string;
+  detail?: string;
+  ip?: string;
+  userAgent?: string;
 }
 
 export interface Toast {

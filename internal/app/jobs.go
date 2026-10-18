@@ -44,6 +44,9 @@ type JobInput struct {
 
 // ListJobs returns every job as a view.
 func (a *App) ListJobs(ctx context.Context) ([]JobView, error) {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
 	jobs, err := a.Store.Jobs().List(ctx)
 	if err != nil {
 		return nil, err
@@ -57,6 +60,9 @@ func (a *App) ListJobs(ctx context.Context) ([]JobView, error) {
 
 // GetJob returns one job view.
 func (a *App) GetJob(ctx context.Context, id string) (JobView, error) {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
 	j, err := a.Store.Jobs().Get(ctx, id)
 	if err != nil {
 		return JobView{}, err
@@ -66,6 +72,9 @@ func (a *App) GetJob(ctx context.Context, id string) (JobView, error) {
 
 // CreateJob validates and stores a job.
 func (a *App) CreateJob(ctx context.Context, in JobInput) (JobView, error) {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
 	if err := a.validateJobInput(ctx, in); err != nil {
 		return JobView{}, err
 	}
@@ -84,12 +93,23 @@ func (a *App) CreateJob(ctx context.Context, in JobInput) (JobView, error) {
 		created = j
 	}
 	// Schedule the first run promptly.
-	_ = a.Store.States().Upsert(ctx, domain.JobState{JobID: created.ID, NextRunAt: time.Now().UTC()})
+	if err := a.Store.States().Upsert(ctx, domain.JobState{JobID: created.ID, NextRunAt: time.Now().UTC()}); err != nil {
+		a.Log.Warn("job created but initial schedule state was not persisted", "job", created.ID, "err", err)
+	}
 	return a.jobView(ctx, created), nil
 }
 
 // UpdateJob updates a job.
 func (a *App) UpdateJob(ctx context.Context, id string, in JobInput) (JobView, error) {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
+	release, err := a.acquireJobGate(ctx, id)
+	if err != nil {
+		return JobView{}, err
+	}
+	defer release()
+
 	j, err := a.Store.Jobs().Get(ctx, id)
 	if err != nil {
 		return JobView{}, err
@@ -124,11 +144,34 @@ func (a *App) UpdateJob(ctx context.Context, id string, in JobInput) (JobView, e
 	if err := a.Store.Jobs().Update(ctx, j); err != nil {
 		return JobView{}, err
 	}
+	// Re-plan the next run so a shortened interval takes effect immediately
+	// instead of waiting out the schedule the old interval already booked. The
+	// new time is only ever earlier, so an edit can never postpone a run.
+	if j.Enabled {
+		if st, err := a.Store.States().Get(ctx, id); err == nil {
+			next := engine.NextRun(j, time.Now().UTC())
+			if st.NextRunAt.IsZero() || next.Before(st.NextRunAt) {
+				st.JobID = id
+				st.NextRunAt = next
+				if err := a.Store.States().Upsert(ctx, st); err != nil {
+					a.Log.Warn("job updated but next run was not rescheduled", "job", id, "err", err)
+				}
+			}
+		}
+	}
 	return a.jobView(ctx, j), nil
 }
 
 // DeleteJob removes a job and its state.
 func (a *App) DeleteJob(ctx context.Context, id string) error {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
+	release, err := a.acquireJobGate(ctx, id)
+	if err != nil {
+		return err
+	}
+	defer release()
 	return a.Store.Jobs().Delete(ctx, id)
 }
 
@@ -192,6 +235,9 @@ func (a *App) RunAllEnabled(ctx context.Context) RunAllSummary {
 
 // DryRun returns the diff a job would apply, without writing.
 func (a *App) DryRun(ctx context.Context, id string) (engine.Diff, error) {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
 	j, err := a.Store.Jobs().Get(ctx, id)
 	if err != nil {
 		return engine.Diff{}, err
@@ -204,7 +250,11 @@ func (a *App) DryRun(ctx context.Context, id string) (engine.Diff, error) {
 	if err != nil {
 		return engine.Diff{}, err
 	}
-	return a.Reconciler.DryRun(ctx, j, prov, src)
+	addrs, err := a.Reconciler.Plan(ctx, j, src)
+	if err != nil {
+		return engine.Diff{}, err
+	}
+	return a.Reconciler.DryRunWith(ctx, j, prov, addrs)
 }
 
 func (a *App) jobView(ctx context.Context, j domain.Job) JobView {
@@ -233,7 +283,8 @@ func (a *App) validateJobInput(ctx context.Context, in JobInput) error {
 	if _, err := a.Store.Providers().Get(ctx, in.ProviderID); err != nil {
 		return fmt.Errorf("provider: %w", err)
 	}
-	if _, err := a.Store.IPSources().Get(ctx, in.IPSourceID); err != nil {
+	source, err := a.Store.IPSources().Get(ctx, in.IPSourceID)
+	if err != nil {
 		return fmt.Errorf("ip source: %w", err)
 	}
 	if len(in.Targets) == 0 {
@@ -244,9 +295,16 @@ func (a *App) validateJobInput(ctx context.Context, in JobInput) error {
 			return fmt.Errorf("each target needs a domain")
 		}
 		switch t.Type {
-		case domain.RecordA, domain.RecordAAAA, domain.RecordCNAME:
+		case domain.RecordA, domain.RecordAAAA:
 		default:
-			return fmt.Errorf("target %s: unsupported record type %q", t.Domain, t.Type)
+			// CNAME (and anything else) is refused: a dynamic-DNS target is
+			// driven by an IP source, and a CNAME's value is a hostname, which
+			// no source can supply. See engine.Reconciler.Reconcile.
+			return fmt.Errorf("target %s: unsupported record type %q (only A and AAAA are address-driven)", t.Domain, t.Type)
+		}
+		if family := t.Type.Family(); family != source.Family {
+			return fmt.Errorf("target %s: %s requires an IP source for %s, but %q provides %s addresses",
+				t.Domain, t.Type, family, source.Name, source.Family)
 		}
 	}
 	return nil

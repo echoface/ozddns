@@ -2,9 +2,9 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import Icon from "../components/Icon.vue";
-import { Banner, DiffValue, PageHead, StatusPill } from "../components/UiKit";
+import { Banner, PageHead, StatusPill } from "../components/UiKit";
 import { fmtAgo, t } from "../lib";
-import { api, bootState, data, fail, getProvider, getProviderType, notify, refresh } from "../store";
+import { api, bootState, data, fail, getProvider, getProviderType, notify, updateIPInfo } from "../store";
 
 const router = useRouter();
 const failing = computed(() => data.jobs.filter((job) => job.lastStatus === "failed"));
@@ -14,22 +14,51 @@ const failures24h = computed(() => data.runs.filter((run) => run.status === "fai
 const changes24h = computed(() => data.runs.filter((run) => run.status === "success" && Date.now() - run.startedAt < 86400000).length);
 const ipLoading = ref(false);
 
+function familyAddress(info: typeof data.ipInfo.v4): string {
+  return info.status === "ok" ? info.address || "—" : "—";
+}
+
+function familyPill(info: typeof data.ipInfo.v4): string {
+  return info.status === "error" ? "err" : "mute";
+}
+
+function familyPillText(info: typeof data.ipInfo.v4): string {
+  if (info.status === "error") return t("Check failed");
+  if (info.status === "no_active_tasks") return t("Not configured");
+  return fmtAgo(info.checkedAt);
+}
+
+function sourceLabel(info: typeof data.ipInfo.v4): string {
+  if (!info.source) return "—";
+  return info.sourceTarget ? `${info.source} · ${info.sourceTarget}` : info.source;
+}
+
+function familySummary(info: typeof data.ipInfo.v4, family: "IPv4" | "IPv6"): string {
+  if (info.status === "error") {
+    return t("via {src} · check failed", { src: sourceLabel(info) });
+  }
+  if (info.status === "no_active_tasks") {
+    return t("No active {family} task", { family });
+  }
+  return t("via {src} · {ago}", { src: sourceLabel(info), ago: fmtAgo(info.checkedAt) });
+}
+
+function sourceLine(info: typeof data.ipInfo.v4): string {
+  return t(info.tasks === 1 ? "Source · {s} · used by {n} active task" : "Source · {s} · used by {n} active tasks", {
+    s: sourceLabel(info),
+    n: info.tasks
+  });
+}
+
 // The public address is resolved lazily: bootstrap only carries whatever was
 // cached, so the Overview fetches the live value once it actually needs it.
 async function loadIP(): Promise<void> {
   if (ipLoading.value) return;
   ipLoading.value = true;
   try {
-    if (bootState.value === "offline") {
-      data.ipInfo.v4Checked = Date.now();
-      data.ipInfo.v6Checked = Date.now();
-    } else {
+    if (bootState.value !== "offline") {
       const ip = await api.get("/ip");
-      data.ipInfo.v4 = ip.v4 || "";
-      data.ipInfo.v6 = ip.v6 || "";
-      data.ipInfo.v4Source = ip.v4Source || "—";
-      data.ipInfo.v6Source = ip.v6Source || "—";
-      data.ipInfo.v4Checked = data.ipInfo.v6Checked = Date.parse(ip.checkedAt);
+      updateIPInfo(ip);
     }
   } finally {
     ipLoading.value = false;
@@ -39,7 +68,7 @@ async function loadIP(): Promise<void> {
 async function refreshIP(): Promise<void> {
   try {
     await loadIP();
-    notify("ok", t("IP refreshed"), t("Re-checked the public address."));
+    notify("ok", t("IP refreshed"), t("Re-checked the address sources used by enabled tasks."));
   } catch (error) { fail(error, t("Refresh failed")); }
 }
 
@@ -60,9 +89,9 @@ onMounted(() => { loadIP().catch(() => {}); });
   <div class="grid cols-4 mb24 reveal">
     <div class="card stat">
       <span class="lab"><Icon name="globe" />{{ t("Public IPv4") }}</span>
-      <span v-if="ipLoading && !data.ipInfo.v4" class="sk" style="width:132px;height:26px" />
-      <span v-else class="val">{{ data.ipInfo.v4 || "—" }}</span>
-      <span class="foot">{{ t("via {src} · {ago}", { src: data.ipInfo.v4Source, ago: fmtAgo(data.ipInfo.v4Checked) }) }}</span>
+      <span v-if="ipLoading && !data.ipInfo.v4.address" class="sk" style="width:132px;height:26px" />
+      <span v-else class="val">{{ familyAddress(data.ipInfo.v4) }}</span>
+      <span class="foot">{{ familySummary(data.ipInfo.v4, "IPv4") }}</span>
     </div>
     <div class="card stat">
       <span class="lab"><Icon name="jobs" />{{ t("Active tasks") }}</span>
@@ -86,25 +115,35 @@ onMounted(() => { loadIP().catch(() => {}); });
       <div class="col">
         <div class="hstack between">
           <span class="lab stat" style="padding:0"><span class="eyebrow">{{ t("Public IPv4") }}</span></span>
-          <span class="pill mute"><span class="dot" />{{ fmtAgo(data.ipInfo.v4Checked) }}</span>
+          <span class="pill" :class="familyPill(data.ipInfo.v4)"><span class="dot" />{{ familyPillText(data.ipInfo.v4) }}</span>
         </div>
-        <div v-if="ipLoading && !data.ipInfo.v4" class="sk mt8" style="width:220px;height:30px" />
-        <div v-else class="ipv4 mt8">{{ data.ipInfo.v4 || "—" }}</div>
-        <div class="row-sub mt8">{{ t("Source · {s} · used by {n} tasks", { s: data.ipInfo.v4Source, n: data.jobs.length }) }}</div>
+        <div v-if="ipLoading && !data.ipInfo.v4.address" class="sk mt8" style="width:220px;height:30px" />
+        <div v-else class="ipv4 mt8">{{ familyAddress(data.ipInfo.v4) }}</div>
+        <div v-if="data.ipInfo.v4.status !== 'no_active_tasks'" class="row-sub mt8">{{ sourceLine(data.ipInfo.v4) }}</div>
+        <div v-if="data.ipInfo.v4.status === 'error'" class="callout callout-danger mt16">{{ data.ipInfo.v4.error || t("The IP source could not be read.") }}</div>
+        <div v-else-if="data.ipInfo.v4.status === 'no_active_tasks'" class="callout mt16">
+          {{ t("No enabled {family} task references an IP source.", { family: "IPv4" }) }}
+          <RouterLink to="/jobs/new" style="color:var(--coral-700);text-decoration:underline">{{ t("Create a task") }}</RouterLink>
+        </div>
         <div class="hstack mt16">
           <button class="btn sm" @click="refreshIP"><Icon name="refresh" />{{ t("Refresh IP") }}</button>
-          <span class="tiny muted">{{ t("Re-checks the public address") }}</span>
+          <span class="tiny muted">{{ t("Re-checks sources used by enabled tasks") }}</span>
         </div>
       </div>
       <div class="col">
         <div class="hstack between">
           <span class="eyebrow">{{ t("Public IPv6") }}</span>
-          <span class="pill mute"><span class="dot" />{{ fmtAgo(data.ipInfo.v6Checked) }}</span>
+          <span class="pill" :class="familyPill(data.ipInfo.v6)"><span class="dot" />{{ familyPillText(data.ipInfo.v6) }}</span>
         </div>
-        <div v-if="ipLoading && !data.ipInfo.v6" class="sk mt8" style="width:220px;height:30px" />
-        <div v-else class="ipv6 mt8">{{ data.ipInfo.v6 || "—" }}</div>
-        <div class="row-sub mt8">{{ t("Source · {s}", { s: data.ipInfo.v6Source }) }}</div>
-        <div class="callout mt16">{{ t("Some hosts rotate their IPv6 prefix daily. OzDDNS writes only when the resolved address changes.") }}</div>
+        <div v-if="ipLoading && !data.ipInfo.v6.address" class="sk mt8" style="width:220px;height:30px" />
+        <div v-else class="ipv6 mt8">{{ familyAddress(data.ipInfo.v6) }}</div>
+        <div v-if="data.ipInfo.v6.status !== 'no_active_tasks'" class="row-sub mt8">{{ sourceLine(data.ipInfo.v6) }}</div>
+        <div v-if="data.ipInfo.v6.status === 'error'" class="callout callout-danger mt16">{{ data.ipInfo.v6.error || t("The IP source could not be read.") }}</div>
+        <div v-else-if="data.ipInfo.v6.status === 'no_active_tasks'" class="callout mt16">
+          {{ t("No enabled {family} task references an IP source.", { family: "IPv6" }) }}
+          <RouterLink to="/jobs/new" style="color:var(--coral-700);text-decoration:underline">{{ t("Create a task") }}</RouterLink>
+        </div>
+        <div v-else class="callout mt16">{{ t("Some hosts rotate their IPv6 prefix daily. OzDDNS writes only when the resolved address changes.") }}</div>
       </div>
     </div>
   </div>

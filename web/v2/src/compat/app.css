@@ -231,7 +231,7 @@ code, kbd { font-family: var(--font-mono); }
 .dotted { display:inline-flex; align-items:center; gap:6px; }
 .dotted::before { content:""; width:7px; height:7px; border-radius:50%; background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent); }
 
-/* protocol label (A / AAAA / CNAME) */
+/* legacy CNAME label still renders for old data */
 .rtype { font-family: var(--font-mono); font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 6px; letter-spacing: .02em; }
 .rtype.A    { color: var(--slate); background: var(--slate-050); }
 .rtype.AAAA { color: var(--violet); background: var(--violet-050); }

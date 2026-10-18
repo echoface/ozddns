@@ -23,7 +23,7 @@ type Factory struct{}
 func (Factory) Meta() provider.Meta {
 	return provider.Meta{
 		Type: Type, Label: "Custom Webhook", Color: "custom", Tag: "custom",
-		Desc: "Call your own HTTP endpoint with the new IP",
+		Desc: "Call your own HTTP endpoint with the new IP", WriteOnly: true,
 		Fields: []provider.Field{
 			{Key: "url", Label: "Endpoint URL", Type: provider.FieldText, Required: true, Help: "Supports {{ip}}, {{domain}} and {{type}} placeholders."},
 			{Key: "method", Label: "Method", Type: provider.FieldSelect, Options: []string{"GET", "POST", "PUT"}, Default: "GET"},

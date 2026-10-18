@@ -10,7 +10,8 @@ import {
   ProviderField,
   ProviderLogo,
   ProviderStatus,
-  StatusPill
+  StatusPill,
+  Toggle
 } from "../components/UiKit";
 import { fmtAgo, fmtDateTime, t } from "../lib";
 import {
@@ -24,6 +25,7 @@ import {
   getProviderType,
   notify,
   refresh,
+  toggleProvider,
   validateProvider
 } from "../store";
 
@@ -38,7 +40,12 @@ const config = reactive<Record<string, any>>({});
 function fieldValue(key: string): any {
   if (config[key] !== undefined) return config[key];
   const stored = provider.value?.config[key];
-  return typeof stored === "string" && stored.includes("••") ? "" : stored ?? "";
+  if (typeof stored === "string" && stored.includes("••")) return "";
+  if (stored !== undefined && stored !== null && stored !== "") return stored;
+  // Nothing stored yet (or nothing meaningful): show the field's designed
+  // default so the form reflects what will actually be saved.
+  const field = providerType.value?.fields?.find((item: any) => item.key === key);
+  return field?.default ?? "";
 }
 
 function setField(key: string, value: any): void {
@@ -49,8 +56,11 @@ async function save(): Promise<void> {
   if (!provider.value || !providerType.value) return;
   const next: Record<string, unknown> = {};
   providerType.value.fields.forEach((field: any) => {
-    const value = config[field.key];
-    if (value !== undefined && value !== "") next[field.key] = value === "true" ? true : value === "false" ? false : value;
+    // Submit the effective value (typed value, else stored value, else the
+    // field default). Blank means "unchanged" for secrets and "clear" for
+    // everything else, so blanks are skipped rather than persisted.
+    const value = fieldValue(field.key);
+    if (value !== undefined && value !== null && value !== "") next[field.key] = value === "true" ? true : value === "false" ? false : value;
   });
   try {
     if (bootState.value === "offline") Object.assign(provider.value.config, next);
@@ -146,7 +156,7 @@ function remove(): void {
         <table class="table"><thead><tr><th>{{ t("Zone") }}</th><th>{{ t("Records") }}</th><th>{{ t("Visibility") }}</th></tr></thead>
           <tbody>
             <tr v-for="zone in provider.zones" :key="zone"><td class="mono">{{ zone }}</td><td class="num">{{ Math.ceil(provider.records / provider.zones.length) }}</td><td><Pill kind="ok">{{ t("Read / Write") }}</Pill></td></tr>
-            <tr v-if="!provider.zones.length"><td colspan="3" class="muted">{{ t("No zones discovered.") }}</td></tr>
+            <tr v-if="!provider.zones.length"><td colspan="3" class="muted">{{ t(providerType?.writeOnly ? "Zones cannot be read back from this provider." : "No zones discovered.") }}</td></tr>
           </tbody>
         </table>
       </div>
@@ -156,8 +166,16 @@ function remove(): void {
           [t('Provider type'), providerType?.label],
           [t('Created'), fmtDateTime(provider.createdAt)],
           [t('Last validated'), fmtAgo(provider.lastValidated)],
-          [t('Records tracked'), String(provider.records)]
+          [t('Records tracked'), providerType?.writeOnly ? '—' : String(provider.records)]
         ]" :key="String(key)" class="between" style="padding:7px 0;border-bottom:1px solid var(--line-2)"><span class="tiny muted">{{ key }}</span><span class="strong" style="font-size:13px">{{ value }}</span></div>
+        <div class="divider" />
+        <div class="switch-row">
+          <div class="txt">
+            <div class="t">{{ t("Provider enabled") }}</div>
+            <div class="d">{{ t("Every task that writes through this provider is skipped while it is disabled.") }}</div>
+          </div>
+          <Toggle :model-value="provider.enabled" :label="t('Provider enabled')" @click="toggleProvider(provider).catch(error => fail(error, t('Save failed')))" />
+        </div>
         <div class="divider" />
         <button class="btn danger block" @click="remove"><Icon name="trash" />{{ t("Delete provider") }}</button>
       </div>

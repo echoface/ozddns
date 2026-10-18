@@ -23,7 +23,7 @@ type Factory struct{}
 func (Factory) Meta() provider.Meta {
 	return provider.Meta{
 		Type: Type, Label: "Cloudflare", Color: "cloudflare", Tag: "cloudflare",
-		Desc: "API Token, zones & proxied records (A / AAAA / CNAME)", SupportsProxied: true,
+		Desc: "API Token, zones & proxied records (A / AAAA)", SupportsProxied: true,
 		Fields: []provider.Field{
 			{Key: "api_token", Label: "API Token", Type: provider.FieldSecret, Secret: true, Required: true,
 				Help: "Create one under My Profile → API Tokens with Zone.DNS Edit. ~40 characters. Not the 37-character Global API Key."},

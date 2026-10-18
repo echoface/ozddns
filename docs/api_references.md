@@ -1,6 +1,6 @@
 # OzDDNS 后端 API 对接参考
 
-本文档依据当前后端实现整理，覆盖 `internal/server/server.go` 注册的全部 34 个
+本文档依据当前后端实现整理，覆盖 `internal/server/server.go` 注册的全部
 `/api/v1` 接口。接口以 REST + JSON 提供，主要供 Web 面板或第三方自动化程序调用。
 
 ## 1. 基础约定
@@ -10,6 +10,7 @@
 - API 前缀：`/api/v1`
 - 默认监听地址：`http://127.0.0.1:9876`
 - 请求体格式：`Content-Type: application/json`
+- 请求体上限：`/auth/*` 为 64 KiB，其他 `/api/v1/*` 为 8 MiB；超限返回 `413`
 - 响应体格式：`Content-Type: application/json; charset=utf-8`
 - 时间格式：Go `time.Time` 的 RFC 3339 字符串，例如 `2026-10-10T08:30:00Z`
 - 资源 ID：服务商、IP 源和任务使用字符串 ID；执行记录使用整数 ID
@@ -18,31 +19,87 @@
 
 ```bash
 export OZDDNS_URL=http://127.0.0.1:9876
-export OZDDNS_USER=admin
-export OZDDNS_PASSWORD=your-password
+export OZDDNS_COOKIE_JAR=/tmp/ozddns.cookies
 ```
 
 ### 1.2 鉴权
 
-实例未设置密码时，接口允许匿名访问。设置密码后，所有请求必须携带 HTTP Basic
-Auth：
+OzDDNS 有两种明确模式：
+
+- **开放模式（默认）**：没有管理员账号时，`/api/v1` 允许匿名访问。它只适合
+  `127.0.0.1` 等本机可信环境。
+- **授权模式**：管理员在面板中完成密码 + TOTP 配置后，除 `/auth/state`、授权配置
+  握手、登录、MFA 和退出外，所有 `/api/v1` 接口都要求有效的服务端 Session
+  Cookie。公开的 `GET /healthz` 位于 `/api/v1` 之外。
+
+会话 Cookie 名为 `ozddns_session`，属性为 `HttpOnly`、`SameSite=Lax`；通过 HTTPS
+访问或可信反向代理报告 `X-Forwarded-Proto: https` 时还会带 `Secure`。令牌是不透明
+随机值，数据库只保存其 SHA-256 哈希。Session 在闲置 30 分钟后过期，并且无论是否
+活跃都在 12 小时后过期。
+
+当前安全模型只有一名管理员，没有角色、按用户权限或独立 API Token。脚本调用受保护
+接口时必须完成同样的“密码 → MFA”流程并保存 Cookie。`trustProxy` 只应在前置代理
+会覆盖 `X-Forwarded-Proto` 与 `X-Forwarded-For` 时开启；它同时影响 Secure Cookie
+和限流/回环配置判断所使用的客户端地址。
+
+登录、MFA、首次配置和敏感操作按“来源 IP + 操作类型”分别限流。限流状态只保存在
+当前进程内，使用有硬性上限的 token bucket；不会因为大量不同来源地址而无限占用内存。
+多实例部署不能共享这些计数，需要另行设计集中式限流。
+
+登录分两步：
+
+```http
+POST /api/v1/auth/login
+{"username":"admin","password":"..."}
+```
+
+成功返回 5 分钟有效的 `challenge`。第二步提交密码之外的 TOTP 或一次性恢复码：
+
+```http
+POST /api/v1/auth/mfa
+{"challenge":"...","code":"123456"}
+```
+
+成功后 `Set-Cookie` 建立服务端 Session。浏览器客户端必须使用
+`credentials: "same-origin"`；脚本客户端应自行保存 Cookie。
+
+命令行可用 Cookie jar 保持会话：
 
 ```bash
-curl -u "$OZDDNS_USER:$OZDDNS_PASSWORD" \
-  "$OZDDNS_URL/api/v1/status"
+curl -c "$OZDDNS_COOKIE_JAR" \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"..."}' \
+  "$OZDDNS_URL/api/v1/auth/login"
+
+curl -b "$OZDDNS_COOKIE_JAR" -c "$OZDDNS_COOKIE_JAR" \
+  -H 'Content-Type: application/json' \
+  -d '{"challenge":"...","code":"123456"}' \
+  "$OZDDNS_URL/api/v1/auth/mfa"
 ```
 
 认证失败：
 
 ```http
 HTTP/1.1 401 Unauthorized
-WWW-Authenticate: Basic realm="OzDDNS"
 Content-Type: application/json; charset=utf-8
 ```
 
 ```json
-{"error":"authentication required"}
+{"error":"authorization required"}
 ```
+
+401 响应不带 `WWW-Authenticate`，避免浏览器弹出原生凭证框。面板会跳转到 `#/login`。
+
+所有 API 和面板响应都带以下浏览器安全头：
+
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `Referrer-Policy: no-referrer`
+- `Permissions-Policy: camera=(), microphone=(), geolocation=()`
+- `Content-Security-Policy: frame-ancestors 'none'; base-uri 'self'; object-src 'none'`
+
+授权模式下的 API 响应还带 `Cache-Control: no-store`。这些头用于禁止嵌入、限制
+插件内容并避免敏感响应被缓存，不替代代理层 TLS。
 
 ### 1.3 通用错误
 
@@ -59,9 +116,14 @@ Content-Type: application/json; charset=utf-8
 | `200` | 查询、更新、删除或动作执行成功 |
 | `201` | 资源创建成功 |
 | `400` | JSON 无法解析、参数校验失败或资源仍被引用 |
-| `401` | 已启用密码，但未提供或提供了错误的 Basic Auth |
+| `401` | 授权模式下未登录、Session 过期或第二个因素错误 |
+| `403` | 跨站写请求被拒绝，或首次授权配置不是来自回环客户端 |
 | `404` | 资源不存在 |
 | `405` | 路径存在，但 HTTP 方法不匹配 |
+| `409` | 授权已经开启、已经关闭，或配置流程状态冲突 |
+| `410` | 待完成的授权配置已过期，需要重新开始 |
+| `413` | JSON 请求体超过 API 或认证接口的硬性大小上限 |
+| `429` | 登录、验证码或敏感操作触发限流 |
 | `500` | 存储、聚合查询或未恢复的内部错误 |
 
 以下动作接口采用“HTTP 200 + `ok`”表达业务结果，调用方不能只检查 HTTP 状态码：
@@ -82,7 +144,7 @@ Content-Type: application/json; charset=utf-8
 - 服务商、IP 源和任务的部分字符串字段提交空字符串时保持不变。
 - 服务商 `config` 一旦提供，会作为新的配置对象处理；已有密钥会按“密钥掩码规则”合并保留。
 - `settings.notifications` 一旦提供，会整体替换现有通知渠道数组。
-- JSON 中未知字段当前会被忽略。
+- JSON 请求体中的未知字段会被拒绝并返回 `400`，避免拼写错误被静默忽略。
 
 ### 1.5 密钥掩码
 
@@ -157,7 +219,6 @@ Content-Type: application/json; charset=utf-8
 |---|---|---|
 | `GET` | `/settings` | 获取设置 |
 | `PATCH` | `/settings` | 部分更新设置 |
-| `POST` | `/settings/password` | 设置或清除登录密码 |
 | `POST` | `/settings/test-notify` | 测试通知渠道 |
 
 ### 2.7 配置备份
@@ -166,6 +227,22 @@ Content-Type: application/json; charset=utf-8
 |---|---|---|
 | `GET` | `/config/export` | 导出服务商、IP 来源、任务和设置 |
 | `POST` | `/config/import` | 用备份完整替换当前配置 |
+
+### 2.8 授权与会话
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/auth/state` | 公开查询授权模式、登录状态和是否暴露到回环地址外 |
+| `POST` | `/auth/setup/start` | 开放模式下提交管理员用户名和密码，返回 TOTP 配置材料 |
+| `POST` | `/auth/setup/verify` | 校验首个 TOTP 码，创建管理员和 Session，返回一次性恢复码 |
+| `POST` | `/auth/setup/cancel` | 放弃未完成的授权配置 |
+| `POST` | `/auth/login` | 校验用户名和密码，返回短时 MFA challenge |
+| `POST` | `/auth/mfa` | 校验 TOTP/恢复码并创建 Session |
+| `POST` | `/auth/logout` | 撤销当前 Session 并清除 Cookie |
+| `GET` | `/auth/me` | 返回当前 Session 的管理员 |
+| `POST` | `/auth/disable` | 校验密码 + TOTP/恢复码，删除全部授权状态并返回开放模式 |
+| `POST` | `/auth/recovery-codes` | 校验密码 + TOTP/恢复码，整组更换恢复码 |
+| `GET` | `/auth/events` | 查询最近 30 条安全审计事件 |
 
 ## 3. 公共数据模型
 
@@ -195,7 +272,6 @@ Content-Type: application/json; charset=utf-8
 | `type` | `string` | `http`、`interface`、`command`、`static` |
 | `family` | `string` | `v4` 或 `v6` |
 | `target` | `string` | URL、网卡名、Shell 命令或静态 IP |
-| `enabled` | `boolean` | 是否启用 |
 | `createdAt` | `string` | 创建时间 |
 | `updatedAt` | `string` | 更新时间 |
 
@@ -213,10 +289,19 @@ Content-Type: application/json; charset=utf-8
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `domain` | `string` | 是 | 完整域名 |
-| `type` | `string` | 是 | `A`、`AAAA` 或 `CNAME` |
+| `type` | `string` | 是 | 仅 `A` 或 `AAAA`；类型由 IP 来源的地址族决定 |
 | `ttl` | `integer` | 否 | TTL 秒数，具体支持取决于服务商 |
 | `proxied` | `boolean` | 否 | Cloudflare 代理开关 |
 | `comment` | `string` | 否 | 记录备注 |
+
+> CNAME 不受支持：任务的目标记录由 IP 来源驱动，而 CNAME 的值是主机名，IP 来源无法提供。
+> 创建或更新任务时提交 `CNAME` 会返回 `400`。旧数据中遗留的 CNAME 目标在执行时会被标记为
+> `skipped`，不会被错误写入。
+
+> 一个任务只绑定一个地址族。所有 `A` 目标必须使用 `family: v4` 的 IP 来源，所有 `AAAA`
+> 目标必须使用 `family: v6` 的 IP 来源；混用会在创建、更新和配置导入时返回 `400`。
+> 运行阶段如果 IP 来源解析失败，任务记为 `failed` 并保存具体错误，而不是伪装成普通的
+> “无可用地址”跳过。
 
 ### 3.4 JobView
 
@@ -231,7 +316,7 @@ Content-Type: application/json; charset=utf-8
 | `ipSourceName` | `string` | IP 来源名称，后端反范式补充 |
 | `targets` | `Target[]` | 要维护的 DNS 记录 |
 | `intervalMinutes` | `integer` | 执行间隔，单位分钟 |
-| `runOnChangeOnly` | `boolean` | 仅地址变化时执行的配置标记；当前执行链仅持久化和返回该字段，尚未据此跳过任务 |
+| `runOnChangeOnly` | `boolean` | 为 `true` 时，定时执行会跳过"来源地址、服务商与目标集合自上一次次成功执行以来均未变化"的任务，不再访问服务商；手动"立即执行"始终访问服务商 |
 | `jitter` | `boolean` | 是否启用调度抖动 |
 | `enabled` | `boolean` | 是否启用 |
 | `state` | `JobState` | 任务运行态 |
@@ -243,11 +328,12 @@ Content-Type: application/json; charset=utf-8
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `jobId` | `string` | 任务 ID |
-| `lastStatus` | `string` | `success`、`nochange`、`failed`、`skipped` 或空 |
+| `lastStatus` | `string` | `success`、`nochange`、`failed`、`skipped` 或空；空表示任务尚未执行，面板显示为“未运行” |
 | `lastRunAt` | `string` | 最近执行时间 |
 | `nextRunAt` | `string` | 下次执行时间 |
 | `current` | `string` | 最近已知当前地址 |
 | `desired` | `string` | 最近解析出的目标地址 |
+| `sourceFingerprint` | `string` | 上次成功执行时的来源指纹（地址 + 服务商 + 目标），供跳过判断使用；为空时省略 |
 | `error` | `string` | 最近错误；成功后清空 |
 | `lastChangedAt` | `string` | 最近实际修改 DNS 的时间 |
 
@@ -273,7 +359,7 @@ Content-Type: application/json; charset=utf-8
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `domain` | `string` | 完整域名 |
-| `type` | `string` | `A`、`AAAA` 或 `CNAME` |
+| `type` | `string` | `A` 或 `AAAA`（历史遗留数据可能出现 `CNAME`） |
 | `action` | `string` | `created`、`updated`、`unchanged`、`skipped` 或 `failed` |
 | `current` | `string` | 写入前的值；为空时省略 |
 | `desired` | `string` | 期望写入的值；为空时省略 |
@@ -286,17 +372,13 @@ Content-Type: application/json; charset=utf-8
 |---|---|---|---|
 | `language` | `string` | `en` | 界面语言 |
 | `theme` | `string` | `light` | 界面主题 |
-| `timezone` | `string` | `UTC` | 界面时区 |
+| `timezone` | `string` | 空 | 界面时区覆盖；空值表示跟随浏览器 |
 | `defaultInterval` | `integer` | `5` | 新任务默认间隔（分钟） |
 | `schedulerPaused` | `boolean` | `false` | 是否暂停自动调度 |
 | `schedulerTickSeconds` | `integer` | `5` | 扫描到期任务的周期 |
 | `schedulerWorkers` | `integer` | `4` | 最大并发执行数 |
 | `runOnStart` | `boolean` | `true` | 启动时是否执行一次 |
-| `runRetentionDays` | `integer` | 有效值 `1` | 执行历史保留天数，范围 1～365 |
-| `username` | `string` | 空 | Basic Auth 用户名 |
-| `passwordSet` | `boolean` | `false` | 是否已设置密码，只读状态字段 |
-| `allowWan` | `boolean` | `false` | WAN 访问配置标记 |
-| `tls` | `boolean` | `false` | TLS 配置标记 |
+| `runRetentionDays` | `integer` | `1` | 执行历史保留天数，范围 1～365 |
 | `notifications` | `Notification[]` | `[]` | 通知渠道 |
 
 `Notification`：
@@ -311,6 +393,10 @@ Content-Type: application/json; charset=utf-8
 | `on` | `string[]` | `change`、`failure`、`success` 或 `all` |
 
 ## 4. 元数据与运行状态接口
+
+`GET /healthz` 是唯一不要求 Session 的存活探针，响应体为
+`{"status":"ok"}`。它不返回数据库、调度器或版本细节；这些运行状态仍由受保护的
+`/status` 提供。
 
 ### 4.1 获取初始化数据
 
@@ -327,10 +413,21 @@ GET /api/v1/bootstrap
   "jobs": [],
   "runs": [],
   "ip": {
-    "v4": "203.0.113.10",
-    "v6": "",
-    "v4Source": "default",
-    "v6Source": "",
+    "v4": {
+      "address": "203.0.113.10",
+      "sourceId": "src-home-v4",
+      "source": "Home IPv4",
+      "sourceTarget": "https://api.ipify.org",
+      "tasks": 2,
+      "status": "ok",
+      "checkedAt": "2026-10-10T08:30:00Z"
+    },
+    "v6": {
+      "address": "",
+      "tasks": 0,
+      "status": "no_active_tasks",
+      "checkedAt": null
+    },
     "checkedAt": "2026-10-10T08:30:00Z"
   },
   "status": {},
@@ -367,10 +464,11 @@ GET /api/v1/provider-types
   {
     "id": "cloudflare",
     "label": "Cloudflare",
-    "desc": "API Token, zones & proxied records (A / AAAA / CNAME)",
+    "desc": "API Token, zones & proxied records (A / AAAA)",
     "color": "cloudflare",
     "tag": "cloudflare",
     "supportsProxied": true,
+    "writeOnly": false,
     "fields": [
       {
         "key": "api_token",
@@ -444,6 +542,9 @@ GET /api/v1/ip-sources/interfaces
 GET /api/v1/status
 ```
 
+授权模式下该接口需要 Session Cookie，不能用作容器或负载均衡健康检查；请使用
+`GET /healthz`。
+
 ```json
 {
   "version": "dev",
@@ -461,6 +562,8 @@ GET /api/v1/status
   "dbPath": "/data/ozddns.db",
   "listen": "0.0.0.0:9876",
   "listenSource": "env",
+  "basePath": "/",
+  "basePathSource": "default",
   "serverTime": "2026-10-10T08:30:00Z"
 }
 ```
@@ -473,20 +576,43 @@ GET /api/v1/ip
 
 ```json
 {
-  "v4": "203.0.113.10",
-  "v6": "2001:db8::10",
-  "v4Source": "Home IPv4",
-  "v6Source": "Home IPv6",
+  "v4": {
+    "address": "203.0.113.10",
+    "sourceId": "src-home-v4",
+    "source": "Home IPv4",
+    "sourceTarget": "https://api.ipify.org",
+    "tasks": 2,
+    "status": "ok",
+    "checkedAt": "2026-10-10T08:30:00Z"
+  },
+  "v6": {
+    "address": "2001:db8::10",
+    "sourceId": "src-home-v6",
+    "source": "Home IPv6",
+    "sourceTarget": "en0",
+    "tasks": 1,
+    "status": "ok",
+    "checkedAt": "2026-10-10T08:30:00Z"
+  },
   "checkedAt": "2026-10-10T08:30:00Z"
 }
 ```
 
-选择规则：
+该接口返回的是 **OzDDNS 当前实际管理使用的地址**，不是数据库里任意一个已配置
+来源：
 
-1. 每个地址族使用第一个已启用且族匹配的已配置来源。
-2. 未配置时，IPv4 使用 `https://api.ipify.org`，IPv6 使用
-   `https://v6.ifconfig.co`。
-3. 某个地址族解析失败时，该族地址和来源返回空字符串，接口仍返回 `200`。
+1. 只有启用中的任务引用的来源才会成为候选。未引用来源不会影响总览结果。
+2. 同一地址族有多个候选来源时，优先使用最近一次成功/无变化任务对应的来源。
+3. 首选来源读取失败时，会依次尝试同一族的其他候选来源；`sourceId`、
+   `source`、`sourceTarget` 和 `tasks` 表示最终结果所属来源。
+4. 一个地址族没有启用任务引用来源时，返回 `status: "no_active_tasks"`，
+   不进行外部探测，也不会用默认公共接口伪造结果。
+5. 所有候选来源都失败时返回 `status: "error"` 和具体 `error`；HTTP 仍为
+   `200`，由面板显示失败状态，而不是把空地址误报为成功。`checkedAt` 是该次
+   检查时间，成功和失败都会记录。
+
+`status` 取值为 `ok`、`no_active_tasks`、`error`。`tasks` 只统计启用中且
+引用该来源的任务。
 
 ### 4.7 暂停或恢复调度器
 
@@ -537,7 +663,7 @@ POST /api/v1/providers
 示例：
 
 ```bash
-curl -u "$OZDDNS_USER:$OZDDNS_PASSWORD" \
+curl -b "$OZDDNS_COOKIE_JAR" \
   -H 'Content-Type: application/json' \
   -d '{
     "name": "Cloudflare Main",
@@ -672,8 +798,7 @@ POST /api/v1/ip-sources
   "name": "Public IPv4",
   "type": "http",
   "family": "v4",
-  "target": "https://api.ipify.org",
-  "enabled": true
+  "target": "https://api.ipify.org"
 }
 ```
 
@@ -683,7 +808,6 @@ POST /api/v1/ip-sources
 - `type` 必须为 `http`、`interface`、`command` 或 `static`。
 - `family` 必须为 `v4` 或 `v6`。
 - `target` 非空，并能通过对应来源工厂的结构校验。
-- `enabled` 默认 `true`。
 
 成功返回 `201` 和 `IPSource`。
 
@@ -792,7 +916,7 @@ POST /api/v1/jobs
 - 名称去除首尾空白后不能为空。
 - 服务商和 IP 来源必须存在。
 - 至少一个目标，每个目标的 `domain` 非空。
-- 记录类型只能是 `A`、`AAAA`、`CNAME`。
+- 记录类型只能是 `A` 或 `AAAA`（`CNAME` 会被拒绝）。
 
 成功返回 `201` 和 `JobView`。新任务的 `nextRunAt` 会设为当前时间，以便尽快被调度。
 
@@ -952,7 +1076,7 @@ GET /api/v1/runs?job={jobId}&status={status}&limit={limit}
 响应：按 `startedAt` 倒序排列的 `Run[]`。
 
 ```bash
-curl -u "$OZDDNS_USER:$OZDDNS_PASSWORD" \
+curl -b "$OZDDNS_COOKIE_JAR" \
   "$OZDDNS_URL/api/v1/runs?job=j-abc&status=failed&limit=20"
 ```
 
@@ -992,7 +1116,8 @@ POST /api/v1/runs/purge
 GET /api/v1/settings
 ```
 
-返回 `Settings`。密码哈希永不返回，只通过 `passwordSet` 表示是否已设置密码。
+返回 `Settings`。授权材料不属于该资源，密码哈希、TOTP 密钥和恢复码都不会出现在
+响应或配置导出中。
 
 ### 9.2 更新设置
 
@@ -1008,10 +1133,6 @@ PATCH /api/v1/settings
   "theme": "dark",
   "timezone": "Asia/Shanghai",
   "defaultInterval": 5,
-  "username": "admin",
-  "password": "new-password",
-  "allowWan": false,
-  "tls": false,
   "schedulerPaused": false,
   "schedulerTickSeconds": 5,
   "schedulerWorkers": 4,
@@ -1026,37 +1147,118 @@ PATCH /api/v1/settings
 - `defaultInterval`、`schedulerTickSeconds`、`schedulerWorkers` 只有大于 0 时生效。
 - `runRetentionDays` 必须在 1～365 之间，否则返回 `400`。
 - 调度设置保存后立即应用，无需重启。
-- `password` 非空时会更新密码；此接口不能用空字符串清除密码。
-- `passwordSet` 是响应字段，提交不会直接改变密码状态。
-- `allowWan`、`tls` 会持久化；此 PATCH 本身不会重启 HTTP Server。
+- 授权账号、密码哈希、TOTP 密钥和恢复码不属于 Settings，也不能通过本接口修改；
+  它们只能由 §9.3 的授权流程管理。
 - 监听地址不属于设置项：它由 `--listen`、`OZDDNS_LISTEN` 或 `config.yaml`
   在启动时决定（见 §4.5 的 `listen` / `listenSource`），面板只读展示。
 
-### 9.3 设置或清除密码
+### 9.3 授权流程
+
+#### 开启授权
+
+开放模式下先提交管理员用户名和密码：
+
+首次配置接口只允许来自回环地址的请求，非回环来源会返回 `403`。推荐先在本机直接
+访问 `127.0.0.1` 完成配置。若必须通过同机反向代理配置，只有代理覆盖
+`X-Forwarded-For` 且 OzDDNS 开启 `trustProxy` 后，服务端才能区分真实客户端与代理
+自身的回环地址；不要用追加用户输入的方式转发该请求头。
 
 ```http
-POST /api/v1/settings/password
+POST /api/v1/auth/setup/start
+{"username":"admin","password":"at-least-10-characters"}
 ```
 
-设置密码：
+响应包含只能使用一次的 TOTP 材料和 15 分钟有效期：
 
 ```json
-{"username":"admin","password":"new-password"}
+{
+  "secret": "BASE32SECRET",
+  "otpauthUrl": "otpauth://totp/OzDDNS:admin?...",
+  "qrCodeDataUrl": "data:image/png;base64,...",
+  "expiresAt": "2026-10-18T09:15:00Z"
+}
 ```
 
-清除密码：
+用身份验证器扫描二维码或手动输入密钥，然后提交当前 6 位码：
+
+```http
+POST /api/v1/auth/setup/verify
+{"code":"123456"}
+```
+
+成功后会建立 Session，并返回 10 个一次性恢复码：
 
 ```json
-{"username":"admin","password":""}
+{"recoveryCodes":["ABCDE-FGHIJ","..."],"user":{"username":"admin"}}
 ```
 
-成功：
+恢复码只在此响应中出现一次。未完成配置可通过 `/auth/setup/cancel` 清除，或重新调用
+`/auth/setup/start` 替换。
+
+#### 关闭授权
+
+```http
+POST /api/v1/auth/disable
+{"password":"...","code":"123456"}
+```
+
+`code` 可以是 TOTP 或一个未使用的恢复码。成功后删除管理员、所有 Session、
+challenge、TOTP 密钥和恢复码，服务立即回到开放模式。再次开启必须重新配置一套全新的
+TOTP 密钥。
+
+#### 恢复码轮换
+
+```http
+POST /api/v1/auth/recovery-codes
+{"password":"...","code":"123456"}
+```
+
+旧恢复码会被整组替换。TOTP 时间步和恢复码均为单次使用，重放会失败。
+
+#### 查询授权状态
+
+```http
+GET /api/v1/auth/state
+```
+
+该接口始终公开，用于登录页判断当前模式和 Session 状态：
 
 ```json
-{"ok":true}
+{
+  "enabled": true,
+  "authenticated": false,
+  "setupPending": false,
+  "listen": "127.0.0.1:9876",
+  "exposed": false
+}
 ```
 
-设置成功后，后续请求立即需要新的 Basic Auth。`username` 为空时保留当前用户名。
+- `enabled` 表示管理员账号是否存在。
+- `authenticated` 根据请求携带的 Session Cookie 实时判断。
+- `setupPending` 表示存在尚未完成、尚未过期的 TOTP 配置。
+- `exposed` 表示监听地址是否超出回环范围。
+- 只有已认证管理员才会收到 `username`、`recoveryCodesRemaining` 和 `sessions`；
+  匿名响应有意隐藏这些账号细节。
+
+#### 当前管理员与退出
+
+```http
+GET /api/v1/auth/me
+POST /api/v1/auth/logout
+```
+
+`/auth/me` 返回 `{"username":"admin"}`，需要有效 Session。`/auth/logout` 会撤销当前
+服务端 Session、清除 Cookie，并可安全重复调用。
+
+#### 安全事件
+
+```http
+GET /api/v1/auth/events
+```
+
+返回最近 30 条安全审计事件，需要有效 Session。事件包括配置开始、授权开启/关闭、
+登录成功/失败、MFA 失败、退出和恢复码轮换。审计记录不包含密码、TOTP 密钥、恢复码
+或 Session 令牌。
 
 ### 9.4 测试通知
 
@@ -1104,7 +1306,7 @@ GET /api/v1/config/export
 ```
 
 返回 `ConfigBundle` JSON，并设置下载文件名。导出包含服务商凭据以保证可以恢复工作实例，
-但不包含面板密码哈希。导出文件应作为敏感数据保存。
+但不包含授权状态、密码哈希、TOTP 密钥或恢复码。导出文件应作为敏感数据保存。
 
 ### 9.6 导入配置
 
@@ -1114,7 +1316,9 @@ Content-Type: application/json
 ```
 
 请求体是 `/config/export` 返回的 `ConfigBundle`。导入采用完整替换语义：现有服务商、
-IP 来源、任务和设置会被替换，执行历史保留，当前面板密码也会保留。
+IP 来源、任务和设置会被替换；旧任务的运行态与执行历史也会一并清理，避免面板继续展示
+已不存在的拓扑。当前授权状态（管理员、Session、TOTP 和恢复码）不属于配置包，始终保留。
+整个替换在单个数据库事务中完成；任一写入失败都会回滚，不会留下半完成的配置。
 
 成功响应：
 
@@ -1234,8 +1438,9 @@ Namecheap DDNS 适配器为只写且仅处理 IPv4；AAAA 变更不会写入。
 ### 11.1 初始化面板
 
 1. 调用 `GET /bootstrap`。
-2. 若返回 `401`，显示登录界面并收集 Basic Auth 凭据。
-3. 登录后重新调用 `GET /bootstrap`。
+2. 若返回 `401`，调用 `/auth/state` 确认授权模式并显示登录界面。
+3. 完成 `/auth/login` → `/auth/mfa`（保存服务端 Session Cookie）后重新调用
+   `GET /bootstrap`。
 4. 使用 `providerTypes` 和 `ipSourceTypes` 动态渲染创建表单。
 
 ### 11.2 创建同步任务
@@ -1256,14 +1461,13 @@ Namecheap DDNS 适配器为只写且仅处理 IPv4；AAAA 变更不会写入。
 
 ```js
 const baseURL = "http://127.0.0.1:9876/api/v1";
-const auth = btoa(`${username}:${password}`);
 
 async function request(path, options = {}) {
   const response = await fetch(`${baseURL}${path}`, {
     ...options,
+    credentials: "same-origin",
     headers: {
       Accept: "application/json",
-      Authorization: `Basic ${auth}`,
       ...(options.body ? {"Content-Type": "application/json"} : {}),
       ...options.headers,
     },
@@ -1293,8 +1497,9 @@ if (!result.ok) {
 - 删除服务商或 IP 来源前，应先处理引用它们的任务。
 - 改变已被任务引用的 IP 来源地址族会被拒绝；应新建来源并更新任务。
 - `GET /ip` 和 `GET /bootstrap` 会访问外部 IP 探测地址，不适合当作高频健康检查；
-  健康检查优先使用 `GET /status`。
+  健康检查使用公开的 `GET /healthz`。授权开启后 `/api/v1/status` 需要 Session。
 - `POST /jobs/run-all` 是同步、顺序执行，任务多或上游较慢时请求会持续较久。
 - 当前 API 没有分页游标；执行记录仅支持 `job`、`status` 和 `limit` 过滤。
 - 当前 API 未配置 CORS，Web 客户端通常应与 OzDDNS 同源部署。
+- 当前没有独立 API Token；脚本或第三方客户端只能保存并续用 Session Cookie。
 - 接口没有幂等键。网络超时后重试创建请求可能产生重复资源，客户端应先查询确认。

@@ -35,6 +35,21 @@ const runs = computed(() => {
   if (!job.value) return [];
   return [...data.runs].filter((run) => run.jobId === job.value?.id).sort((a, b) => b.startedAt - a.startedAt).slice(0, 8);
 });
+const reconciliation = computed(() => {
+  switch (job.value?.lastStatus) {
+    case "success":
+    case "nochange":
+      return { kind: "ok", label: "In sync" };
+    case "failed":
+      return { kind: "err", label: "Out of sync" };
+    case "skipped":
+      return { kind: "info", label: "Skipped" };
+    case "running":
+      return { kind: "coral", label: "Running" };
+    default:
+      return { kind: "mute", label: "Not run" };
+  }
+});
 
 async function execute(): Promise<void> {
   if (!job.value || running.value) return;
@@ -122,7 +137,7 @@ function remove(): void {
       </div>
 
       <div class="card mb16 table-card-scroll">
-        <div class="card-head"><span class="h">{{ t("Reconciliation") }}</span><span class="spacer" /><Pill :kind="job.lastStatus === 'failed' ? 'err' : 'ok'" dot>{{ t(job.lastStatus === "failed" ? "Out of sync" : "In sync") }}</Pill></div>
+        <div class="card-head"><span class="h">{{ t("Reconciliation") }}</span><span class="spacer" /><Pill :kind="reconciliation.kind" dot>{{ t(reconciliation.label) }}</Pill></div>
         <table class="table">
           <thead><tr><th>{{ t("Record") }}</th><th>{{ t("Current / Desired") }}</th><th>{{ t("TTL") }}</th><th>{{ t("Flags") }}</th></tr></thead>
           <tbody><tr v-for="target in job.targets" :key="`${target.domain}-${target.type}`">
@@ -132,7 +147,10 @@ function remove(): void {
             <td><Pill v-if="target.proxied" kind="coral">{{ t("Proxied") }}</Pill><span v-else class="muted tiny">{{ t("DNS only") }}</span></td>
           </tr></tbody>
         </table>
-        <div class="card-body" style="border-top:1px solid var(--line-2)"><span class="tiny muted">{{ t("Last reconciled {ago} · next {next}", { ago: fmtAgo(job.lastRun), next: job.enabled ? fmtIn(job.nextRun) : t("paused") }) }}</span></div>
+        <div class="card-body" style="border-top:1px solid var(--line-2)">
+          <span v-if="job.lastRun" class="tiny muted">{{ t("Last reconciled {ago} · next {next}", { ago: fmtAgo(job.lastRun), next: job.enabled ? fmtIn(job.nextRun) : t("paused") }) }}</span>
+          <span v-else class="tiny muted">{{ t("Not run yet") }} · {{ job.enabled ? t("next {next}", { next: fmtIn(job.nextRun) }) : t("paused") }}</span>
+        </div>
       </div>
     </div>
 

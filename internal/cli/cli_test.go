@@ -111,6 +111,10 @@ func TestCommandFlow(t *testing.T) {
 	if code, _, errOut := run(t, "--db", db, "job", "add", "--name", "Home", "--provider", "Hook", "--source", "Fixed", "--target", "home.example.com:A:300"); code != 0 {
 		t.Fatalf("job add: %d %s", code, errOut)
 	}
+	if _, out, errOut := run(t, "--db", db, "ip"); !strings.Contains(out, "203.0.113.9") ||
+		!strings.Contains(out, "Fixed") {
+		t.Fatalf("ip should use the active task source: out=%q err=%q", out, errOut)
+	}
 
 	_, out, _ := run(t, "--db", db, "--json", "job", "list")
 	var jobs []map[string]any
@@ -122,9 +126,11 @@ func TestCommandFlow(t *testing.T) {
 	}
 	jobID, _ := jobs[0]["id"].(string)
 
-	// dry-run reports a create without writing.
+	// dry-run reports the write without performing it. The custom provider is
+	// write-only, so the plan is "apply" rather than "create": there is no read
+	// API to tell whether the record already exists.
 	_, out, _ = run(t, "--db", db, "--json", "job", "run", "--dry-run", jobID)
-	if !strings.Contains(out, `"action": "create"`) {
+	if !strings.Contains(out, `"action": "apply"`) {
 		t.Fatalf("dry-run output = %s", out)
 	}
 

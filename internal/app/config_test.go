@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/echoface/ozddns/internal/domain"
 )
@@ -40,10 +41,6 @@ func TestExportImportRoundTrip(t *testing.T) {
 	if len(bundle.Providers) != 1 || len(bundle.IPSources) != 1 || len(bundle.Jobs) != 1 {
 		t.Fatalf("bundle = %+v", bundle)
 	}
-	if bundle.Settings.PasswordHash != "" {
-		t.Fatal("password hash must never be exported")
-	}
-
 	dst, closeDst, err := Open(ctx, Options{DBPath: filepath.Join(dir, "b.db")})
 	if err != nil {
 		t.Fatalf("open dst: %v", err)
@@ -85,5 +82,78 @@ func TestImportReplace(t *testing.T) {
 	providers, _ := a.ListProviders(ctx)
 	if len(providers) != 1 || providers[0].Name != "One" {
 		t.Fatalf("providers after replace = %+v", providers)
+	}
+}
+
+func TestImportReplaceAppliesSchedulerSettings(t *testing.T) {
+	ctx := context.Background()
+	a := openApp(t)
+	workers, tick, paused := 7, 11, true
+	settings, err := a.PatchSettings(ctx, SettingsInput{
+		SchedulerWorkers: &workers, SchedulerTickSeconds: &tick, SchedulerPaused: &paused,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Import(ctx, ConfigBundle{Settings: settings}, true); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	gotTick, gotWorkers := a.Scheduler.Config()
+	if gotTick != 11*time.Second || gotWorkers != 7 {
+		t.Fatalf("scheduler = tick %s workers %d, want 11s and 7", gotTick, gotWorkers)
+	}
+	if a.Running() {
+		t.Fatal("imported paused setting was not applied")
+	}
+}
+
+// A bundle that fails validation is rejected before anything is deleted or
+// written, so a malformed backup cannot wipe the running configuration.
+func TestImportRejectsBadBundleWithoutMutating(t *testing.T) {
+	ctx := context.Background()
+	a := openApp(t)
+	if _, err := a.CreateProvider(ctx, ProviderInput{Name: "One", Type: "custom", Config: map[string]any{"url": "http://x"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	bad := ConfigBundle{
+		Providers: []domain.Provider{{ID: "p1", Name: "bad", Type: "does-not-exist"}},
+		Jobs: []domain.Job{{ID: "j1", Name: "j", ProviderID: "p1", IPSourceID: "s1",
+			Targets: []domain.Target{{Domain: "a.example.com", Type: domain.RecordA}}}},
+	}
+	if _, err := a.Import(ctx, bad, true); err == nil {
+		t.Fatal("import of an unknown provider type should fail")
+	}
+	providers, _ := a.ListProviders(ctx)
+	if len(providers) != 1 || providers[0].Name != "One" {
+		t.Fatalf("existing configuration was mutated: %+v", providers)
+	}
+}
+
+// A bundle whose job points at a resource it does not contain is rejected.
+func TestImportRejectsDanglingReference(t *testing.T) {
+	ctx := context.Background()
+	a := openApp(t)
+	bad := ConfigBundle{
+		Providers: []domain.Provider{{ID: "p1", Name: "x", Type: "custom", Config: map[string]any{"url": "http://x"}}},
+		Jobs: []domain.Job{{ID: "j1", Name: "j", ProviderID: "p1", IPSourceID: "missing",
+			Targets: []domain.Target{{Domain: "a.example.com", Type: domain.RecordA}}}},
+	}
+	if _, err := a.Import(ctx, bad, true); err == nil {
+		t.Fatal("import with a dangling ip source should fail")
+	}
+}
+
+func TestImportRejectsTargetSourceFamilyMismatch(t *testing.T) {
+	ctx := context.Background()
+	a := openApp(t)
+	bad := ConfigBundle{
+		Providers: []domain.Provider{{ID: "p1", Name: "x", Type: "custom", Config: map[string]any{"url": "http://x"}}},
+		IPSources: []domain.IPSource{{ID: "s1", Name: "v4", Type: domain.IPStatic, Family: "v4", Target: "203.0.113.9"}},
+		Jobs: []domain.Job{{ID: "j1", Name: "j", ProviderID: "p1", IPSourceID: "s1",
+			Targets: []domain.Target{{Domain: "v6.example.com", Type: domain.RecordAAAA}}}},
+	}
+	if _, err := a.Import(ctx, bad, true); err == nil {
+		t.Fatal("import must reject an AAAA target backed by a v4 source")
 	}
 }

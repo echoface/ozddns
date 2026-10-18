@@ -6,17 +6,27 @@ import { Banner, EmptyState, Pill, Toggle } from "../components/UiKit";
 import { applyTheme, setLocale, t } from "../lib";
 import {
   api,
+  authState,
   bootState,
+  cancelAuthSetup,
   confirmModal,
   data,
   deleteSource,
+  disableAuth,
   fail,
+  loadAuthEvents,
+  loadAuthState,
   modal,
   notify,
+  regenerateRecoveryCodes,
   refresh,
   schedulerRunning,
+  signOut,
+  startAuthSetup,
+  verifyAuthSetup,
   toggleScheduler
 } from "../store";
+import type { AuthEvent, AuthSetupInfo } from "../types";
 
 const route = useRoute();
 const router = useRouter();
@@ -43,6 +53,15 @@ const timezones = computed(() => [{ value: "", label: t("Local (browser)") }, { 
 const importInput = ref<HTMLInputElement | null>(null);
 const tabsElement = ref<HTMLElement | null>(null);
 const testingId = ref("");
+const authBusy = ref(false);
+const authError = ref("");
+const setupStep = ref<"idle" | "code" | "codes">("idle");
+const setupInfo = ref<AuthSetupInfo | null>(null);
+const setupForm = reactive({ username: "admin", password: "", password2: "", code: "" });
+const recoveryCodes = ref<string[]>([]);
+const disableForm = reactive({ password: "", code: "" });
+const regenForm = reactive({ password: "", code: "" });
+const authEvents = ref<AuthEvent[]>([]);
 
 // Where a deployment setting came from: start-up flag, environment variable,
 // config.yaml, or the built-in default. Shown so neither the bind address nor
@@ -60,6 +79,7 @@ const listenSourceLabel = computed(() => sourceLabel(data.runtime.listenSource))
 const basePathSourceLabel = computed(() => sourceLabel(data.runtime.basePathSource));
 
 watch(tab, async (value) => {
+  if (value === "security") await refreshSecurity();
   await nextTick();
   const button = tabsElement.value?.querySelector<HTMLElement>(`[data-tab="${value}"]`);
   if (!button || !tabsElement.value) return;
@@ -68,7 +88,11 @@ watch(tab, async (value) => {
   });
 }, { immediate: true });
 
-watch(() => data.settings, (settings) => {
+// Re-seed the form only when the *stored* settings actually changed. A
+// background refresh rebuilds data.settings on every poll, and re-seeding then
+// would silently throw away whatever the operator is still typing.
+watch(() => JSON.stringify(data.settings), () => {
+  const settings = data.settings;
   Object.assign(form, {
     language: settings.general.language,
     theme: settings.general.theme,
@@ -77,18 +101,11 @@ watch(() => data.settings, (settings) => {
     retention: settings.general.runRetentionDays,
     tick: settings.general.schedulerTickSeconds,
     workers: settings.general.schedulerWorkers,
-    runOnStart: settings.general.runOnStart,
-    username: settings.security.username,
-    password: "",
-    password2: ""
+    runOnStart: settings.general.runOnStart
   });
-}, { immediate: true, deep: true });
+}, { immediate: true });
 
 async function saveSettings(): Promise<void> {
-  if (form.password && form.password !== form.password2) {
-    notify("err", t("Save failed"), t("Passwords do not match."));
-    return;
-  }
   const payload: any = {
     language: form.language,
     theme: form.theme,
@@ -98,10 +115,8 @@ async function saveSettings(): Promise<void> {
     schedulerWorkers: Number(form.workers),
     runRetentionDays: Number(form.retention),
     runOnStart: !!form.runOnStart,
-    username: form.username,
     notifications: data.settings.notify.webhooks
   };
-  if (form.password) payload.password = form.password;
   try {
     if (bootState.value === "offline") {
       data.settings.general = { ...data.settings.general, ...payload };
@@ -113,6 +128,158 @@ async function saveSettings(): Promise<void> {
     if (form.theme) applyTheme(form.theme, true);
     notify("ok", t("Saved"), t("Settings persisted."));
   } catch (error) { fail(error, t("Save failed")); }
+}
+
+async function refreshSecurity(): Promise<void> {
+  if (bootState.value === "offline") return;
+  try {
+    await loadAuthState();
+    authEvents.value = await loadAuthEvents();
+  } catch (error) {
+    fail(error, t("Could not load security state"));
+  }
+}
+
+async function beginSetup(): Promise<void> {
+  authError.value = "";
+  if (!setupForm.username.trim()) {
+    authError.value = t("Enter an administrator username.");
+    return;
+  }
+  if (setupForm.password.length < 10) {
+    authError.value = t("Use a password with at least 10 characters.");
+    return;
+  }
+  if (setupForm.password !== setupForm.password2) {
+    authError.value = t("Passwords do not match.");
+    return;
+  }
+  authBusy.value = true;
+  try {
+    setupInfo.value = await startAuthSetup(setupForm.username.trim(), setupForm.password);
+    setupForm.code = "";
+    setupStep.value = "code";
+  } catch (error) {
+    authError.value = (error as Error).message;
+  } finally {
+    authBusy.value = false;
+  }
+}
+
+async function completeSetup(): Promise<void> {
+  authError.value = "";
+  if (!setupForm.code.trim()) {
+    authError.value = t("Enter the current code from your authenticator.");
+    return;
+  }
+  authBusy.value = true;
+  try {
+    const result = await verifyAuthSetup(setupForm.code.trim());
+    recoveryCodes.value = result.recoveryCodes;
+    setupInfo.value = null;
+    setupStep.value = "codes";
+    setupForm.password = "";
+    setupForm.password2 = "";
+    setupForm.code = "";
+    authEvents.value = await loadAuthEvents();
+    notify("ok", t("Authorization enabled"), t("Store the recovery codes before continuing."));
+  } catch (error) {
+    authError.value = (error as Error).message;
+  } finally {
+    authBusy.value = false;
+  }
+}
+
+async function discardSetup(): Promise<void> {
+  authBusy.value = true;
+  try {
+    await cancelAuthSetup();
+  } catch (error) {
+    authError.value = (error as Error).message;
+  } finally {
+    setupInfo.value = null;
+    setupStep.value = "idle";
+    setupForm.code = "";
+    authBusy.value = false;
+  }
+}
+
+function acknowledgeCodes(): void {
+  recoveryCodes.value = [];
+  setupInfo.value = null;
+  setupStep.value = "idle";
+  notify("ok", t("Authorization is ready"), t("Sign in with your password and authenticator code."));
+}
+
+async function copyRecoveryCodes(): Promise<void> {
+  await copy(recoveryCodes.value.join("\n"));
+}
+
+function downloadRecoveryCodes(): void {
+  const blob = new Blob([
+    `${t("OzDDNS recovery codes")}\n`,
+    `${t("Generated")}: ${new Date().toISOString()}\n`,
+    `${t("Each code can be used once.")}\n\n`,
+    recoveryCodes.value.join("\n"),
+    "\n"
+  ], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `ozddns-recovery-codes-${new Date().toISOString().slice(0, 10)}.txt`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function disableAuthorization(): void {
+  authError.value = "";
+  if (!disableForm.password || !disableForm.code.trim()) {
+    authError.value = t("Enter both the password and a current authenticator or recovery code.");
+    return;
+  }
+  confirmModal(
+    t("Turn off authorization?"),
+    t("This deletes the administrator, every active session, the TOTP secret and all recovery codes. The panel becomes open to anyone who can reach it, and enabling it again requires a new TOTP enrollment."),
+    t("Turn off authorization"),
+    async () => {
+      authBusy.value = true;
+      try {
+        await disableAuth(disableForm.password, disableForm.code.trim());
+        disableForm.password = "";
+        disableForm.code = "";
+        authEvents.value = [];
+        setupStep.value = "idle";
+        recoveryCodes.value = [];
+        notify("ok", t("Authorization disabled"), t("The panel is open again. Re-enabling it will generate a new TOTP secret."));
+      } catch (error) {
+        authError.value = (error as Error).message;
+        fail(error, t("Could not disable authorization"));
+      } finally {
+        authBusy.value = false;
+      }
+    }
+  );
+}
+
+async function rotateRecoveryCodes(): Promise<void> {
+  authError.value = "";
+  if (!regenForm.password || !regenForm.code.trim()) {
+    authError.value = t("Enter both the password and a current authenticator or recovery code.");
+    return;
+  }
+  authBusy.value = true;
+  try {
+    recoveryCodes.value = await regenerateRecoveryCodes(regenForm.password, regenForm.code.trim());
+    regenForm.password = "";
+    regenForm.code = "";
+    setupStep.value = "codes";
+    authEvents.value = await loadAuthEvents();
+    notify("ok", t("Recovery codes replaced"), t("The previous recovery codes no longer work."));
+  } catch (error) {
+    authError.value = (error as Error).message;
+  } finally {
+    authBusy.value = false;
+  }
 }
 
 async function testSource(source: any): Promise<void> {
@@ -198,7 +365,7 @@ async function importConfig(event: Event): Promise<void> {
     }
     confirmModal(
       t("Replace current configuration?"),
-      t("Providers, IP sources, tasks and settings will be replaced. Execution history is kept."),
+      t("Providers, IP sources, tasks and settings will be replaced. Execution history for the old topology will be deleted."),
       t("Import configuration"),
       async () => {
         if (bootState.value === "offline") {
@@ -260,7 +427,10 @@ async function copy(value: string): Promise<void> {
         </div>
         <span class="help">{{ t("Public prefix the panel and API are served under, so a reverse proxy can mount them at a sub-path without rebuilding anything. To change it, set --base-path, the OZDDNS_BASE_PATH environment variable, or the basePath key in config.yaml, then restart OzDDNS.") }}</span>
       </div>
-      <div class="callout mb16" v-html="t('Loopback by default. {c} is only reachable from this host. Bind {zero} to expose the panel — pair it with authentication.', { c: '<code>127.0.0.1:9876</code>', zero: '<code>0.0.0.0</code>' })" />
+      <div class="callout mb16">
+        <Icon name="shield" />
+        <div class="grow" v-html="t('Loopback by default. {c} is only reachable from this host. Bind {zero} to expose the panel — pair it with authentication.', { c: '<code>127.0.0.1:9876</code>', zero: '<code>0.0.0.0</code>' })" />
+      </div>
     </div>
   </div>
 
@@ -282,12 +452,129 @@ async function copy(value: string): Promise<void> {
     </div>
   </div>
 
-  <div v-else-if="tab === 'security'" style="max-width:760px">
-    <div class="card pad"><div class="strong mb16">{{ t("Administrator") }}</div>
-      <div class="field"><label>{{ t("Username") }}</label><input v-model="form.username" class="input"></div>
-      <div class="field"><label>{{ t("New password") }}</label><input v-model="form.password" type="password" class="input mono"><span class="help">{{ t("Leave blank to keep the current password.") }}</span></div>
-      <div class="field"><label>{{ t("Confirm password") }}</label><input v-model="form.password2" type="password" class="input mono"></div>
-      <button class="btn primary mt16" @click="saveSettings"><Icon name="save" />{{ t("Save changes") }}</button>
+  <div v-else-if="tab === 'security'" class="vstack" style="max-width:820px">
+    <div v-if="authError" class="banner err">
+      <Icon name="alert-triangle" class="ico" />
+      <div class="grow"><div class="b-title">{{ t("Security action failed") }}</div><div class="b-body">{{ authError }}</div></div>
+      <button class="icon-btn" :aria-label="t('Dismiss')" @click="authError = ''"><Icon name="x" /></button>
+    </div>
+
+    <template v-if="!authState.enabled">
+      <div class="card pad">
+        <div class="between mb16">
+          <div><div class="strong">{{ t("Authorization") }}</div><div class="tiny muted">{{ t("Default local-first mode") }}</div></div>
+          <Pill kind="warn" dot>{{ t("Open — no sign-in") }}</Pill>
+        </div>
+        <p class="tiny muted mb16">{{ t("OzDDNS is currently open. Every API request is accepted without credentials. That is intentional while the service listens only on 127.0.0.1; it is unsafe as soon as the port is reachable from another machine.") }}</p>
+        <div class="callout mb16" :class="{ 'callout-danger': authState.exposed }">
+          <Icon name="shield" />
+          <span v-if="authState.exposed">{{ t("This daemon is listening on {addr}, which is reachable beyond this host. Enable authorization before allowing traffic from other machines.", { addr: authState.listen }) }}</span>
+          <span v-else>{{ t("Listening on {addr}. Local-only use does not need a login.", { addr: authState.listen }) }}</span>
+        </div>
+
+        <template v-if="setupStep === 'idle'">
+          <div class="strong mb12">{{ t("Enable authorization") }}</div>
+          <div v-if="authState.setupPending" class="callout mb16">{{ t("An unfinished enrollment already exists on the server. Starting again replaces its pending password and TOTP secret.") }} <button class="btn sm" type="button" @click="discardSetup">{{ t("Discard pending setup") }}</button></div>
+          <div class="grid cols-2">
+            <div>
+              <div class="field"><label>{{ t("Administrator username") }}</label><input v-model="setupForm.username" class="input" autocomplete="username" maxlength="64"></div>
+              <div class="field"><label>{{ t("Password") }}</label><input v-model="setupForm.password" class="input mono" type="password" autocomplete="new-password"><span class="help">{{ t("At least 10 characters. Stored as a salted PBKDF2-SHA256 hash.") }}</span></div>
+              <div class="field"><label>{{ t("Confirm password") }}</label><input v-model="setupForm.password2" class="input mono" type="password" autocomplete="new-password"></div>
+              <button class="btn primary mt8" type="button" :disabled="authBusy" @click="beginSetup"><Icon :class="authBusy ? 'spin' : ''" :name="authBusy ? 'loader' : 'shield-check'" />{{ t("Continue to TOTP setup") }}</button>
+            </div>
+            <div class="card pad" style="box-shadow:none">
+              <div class="strong mb12">{{ t("What changes") }}</div>
+              <ol class="sched-list">
+                <li>{{ t("Every API route except sign-in and health checks requires a server-side session.") }}</li>
+                <li>{{ t("Sign-in needs the password plus a 6-digit TOTP code.") }}</li>
+                <li>{{ t("Ten one-time recovery codes are issued once, at enrollment.") }}</li>
+                <li>{{ t("Turning authorization off deletes the account, sessions, TOTP secret and recovery codes.") }}</li>
+              </ol>
+            </div>
+          </div>
+        </template>
+
+        <template v-else-if="setupStep === 'code' && setupInfo">
+          <div class="strong mb12">{{ t("Connect your authenticator") }}</div>
+          <p class="tiny muted mb16">{{ t("Scan the QR code with any RFC 6238 authenticator, then enter its current 6-digit code. The enrollment expires at {time}.", { time: new Date(setupInfo.expiresAt).toLocaleString() }) }}</p>
+          <div class="totp-enroll mb16">
+            <div class="totp-qr">
+              <img v-if="setupInfo.qrCodeDataUrl" :src="setupInfo.qrCodeDataUrl" width="220" height="220" :alt="t('TOTP enrollment QR code')">
+            </div>
+            <div class="grow">
+              <div class="strong mb8">{{ t("Can't scan the code?") }}</div>
+              <p class="tiny muted mb12">{{ t("Enter this setup key manually in your authenticator. Keep it private until enrollment is complete.") }}</p>
+              <div class="hstack wrap">
+                <code class="manual-secret">{{ setupInfo.secret }}</code>
+                <button class="icon-btn" type="button" :aria-label="t('Copy secret')" @click="copy(setupInfo.secret)"><Icon name="copy" /></button>
+              </div>
+              <a class="tiny mono mt12" :href="setupInfo.otpauthUrl" style="word-break:break-all">{{ setupInfo.otpauthUrl }}</a>
+            </div>
+          </div>
+          <div class="field" style="max-width:320px"><label>{{ t("Current 6-digit code") }}</label><input v-model="setupForm.code" class="input mono" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456"></div>
+          <div class="hstack wrap mt16">
+            <button class="btn primary" type="button" :disabled="authBusy" @click="completeSetup"><Icon :class="authBusy ? 'spin' : ''" :name="authBusy ? 'loader' : 'check-circle'" />{{ t("Verify and enable") }}</button>
+            <button class="btn" type="button" :disabled="authBusy" @click="discardSetup">{{ t("Cancel setup") }}</button>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <template v-else>
+      <div class="card pad">
+        <div class="between mb16">
+          <div><div class="strong">{{ t("Authorization enabled") }}</div><div class="tiny muted">{{ t("Server-side session + TOTP") }}</div></div>
+          <Pill kind="ok" dot>{{ t("Protected") }}</Pill>
+        </div>
+        <div class="grid cols-2">
+          <div>
+            <div class="between security-row"><span class="tiny muted">{{ t("Administrator") }}</span><span class="mono">{{ authState.username }}</span></div>
+            <div class="between security-row"><span class="tiny muted">{{ t("Listening on") }}</span><span class="mono">{{ authState.listen }}</span></div>
+            <div class="between security-row"><span class="tiny muted">{{ t("Active sessions") }}</span><span class="mono">{{ authState.sessions }}</span></div>
+            <div class="between security-row"><span class="tiny muted">{{ t("Recovery codes remaining") }}</span><span class="mono">{{ authState.recoveryCodesRemaining }} / 10</span></div>
+          </div>
+          <div class="card pad" style="box-shadow:none">
+            <div class="strong mb8">{{ t("Session model") }}</div>
+            <p class="tiny muted mb12">{{ t("The browser holds an opaque HttpOnly cookie. The database stores only its SHA-256 hash. Sessions expire after 30 minutes of inactivity or 12 hours in total.") }}</p>
+            <button class="btn" type="button" @click="signOut"><Icon name="log-out" />{{ t("Sign out this browser") }}</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid cols-2">
+        <div class="card pad">
+          <div class="strong mb8">{{ t("Replace recovery codes") }}</div>
+          <p class="tiny muted mb16">{{ t("Enter your password and a current authenticator or recovery code. All previous recovery codes stop working immediately.") }}</p>
+          <div class="field"><label>{{ t("Password") }}</label><input v-model="regenForm.password" class="input mono" type="password" autocomplete="current-password"></div>
+          <div class="field"><label>{{ t("Authenticator or recovery code") }}</label><input v-model="regenForm.code" class="input mono" autocomplete="one-time-code"></div>
+          <button class="btn" type="button" :disabled="authBusy" @click="rotateRecoveryCodes"><Icon name="refresh" />{{ t("Generate a new set") }}</button>
+        </div>
+
+        <div class="card pad">
+          <div class="strong mb8">{{ t("Turn off authorization") }}</div>
+          <p class="tiny muted mb16">{{ t("This returns the panel to open mode. The account, TOTP secret, recovery codes and every session are deleted. Enabling it again starts a completely new enrollment.") }}</p>
+          <div class="field"><label>{{ t("Password") }}</label><input v-model="disableForm.password" class="input mono" type="password" autocomplete="current-password"></div>
+          <div class="field"><label>{{ t("Authenticator or recovery code") }}</label><input v-model="disableForm.code" class="input mono" autocomplete="one-time-code"></div>
+          <button class="btn danger" type="button" :disabled="authBusy" @click="disableAuthorization"><Icon name="power" />{{ t("Turn off authorization") }}</button>
+        </div>
+      </div>
+
+      <div class="card pad">
+        <div class="between mb12"><span class="strong">{{ t("Recent security activity") }}</span><button class="btn sm" type="button" @click="refreshSecurity"><Icon name="refresh" />{{ t("Refresh") }}</button></div>
+        <div v-if="authEvents.length" class="table-wrap"><table class="table"><thead><tr><th>{{ t("When") }}</th><th>{{ t("Event") }}</th><th>{{ t("Detail") }}</th><th>{{ t("Source") }}</th></tr></thead><tbody><tr v-for="event in authEvents" :key="event.id"><td class="mono tiny">{{ new Date(event.at).toLocaleString() }}</td><td>{{ event.event }}</td><td class="tiny muted">{{ event.detail || "—" }}</td><td class="mono tiny">{{ event.ip || "—" }}</td></tr></tbody></table></div>
+        <p v-else class="tiny muted">{{ t("No security activity recorded yet.") }}</p>
+      </div>
+    </template>
+
+    <div v-if="setupStep === 'codes' && recoveryCodes.length" class="card pad">
+      <div class="between mb12"><div><div class="strong">{{ t("Recovery codes") }}</div><div class="tiny muted">{{ t("Shown once. Each code works for exactly one sign-in.") }}</div></div><Pill kind="warn" dot>{{ t("Save them now") }}</Pill></div>
+      <div class="recovery-grid"><code v-for="code in recoveryCodes" :key="code">{{ code }}</code></div>
+      <div class="callout mb16">{{ t("Store these somewhere separate from the authenticator. If you lose both the authenticator and all recovery codes, use the local CLI break-glass command on the machine running OzDDNS: ozddns auth disable --yes") }}</div>
+      <div class="hstack wrap">
+        <button class="btn primary" type="button" @click="acknowledgeCodes"><Icon name="check-circle" />{{ t("I saved these codes") }}</button>
+        <button class="btn" type="button" @click="copyRecoveryCodes"><Icon name="copy" />{{ t("Copy all") }}</button>
+        <button class="btn" type="button" @click="downloadRecoveryCodes"><Icon name="download" />{{ t("Download .txt") }}</button>
+      </div>
     </div>
   </div>
 

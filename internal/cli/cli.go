@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/echoface/ozddns/internal/app"
@@ -33,6 +34,7 @@ Commands:
   job              Manage sync tasks      (list|show|add|run|enable|disable|rm)
   run              Inspect execution history (list|show)
   config           Export or import configuration (export|import)
+  auth             Manage optional authorization (status|disable)
 
 Global flags (before the command):
   --db <path>      Path to the SQLite database (default ./ozddns.db)
@@ -42,8 +44,8 @@ Global flags (before the command):
 
 Deployment settings are resolved with one precedence everywhere:
   flag > environment > config.yaml > built-in default.
-  --listen / OZDDNS_LISTEN, --db / OZDDNS_DB and --base-path / OZDDNS_BASE_PATH
-  work the same way as in serve.
+  --listen / OZDDNS_LISTEN, --db / OZDDNS_DB, --base-path / OZDDNS_BASE_PATH
+  and --trust-proxy / OZDDNS_TRUST_PROXY work the same way as in serve.
   A missing config file is written with defaults the first time serve runs.
 
 Run "ozddns <command> -h" for command-specific flags.`
@@ -98,6 +100,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return e.cmdRun(rest[1:])
 	case "config":
 		return e.cmdConfig(rest[1:])
+	case "auth":
+		return e.cmdAuth(rest[1:])
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n%s\n", rest[0], usage)
 		return 2
@@ -204,6 +208,26 @@ func (e *env) resolveListen(flagValue string) (addr, source string) {
 		return e.cfg.Listen, "config"
 	}
 	return defaultListenAddr, "default"
+}
+
+// resolveTrustProxy follows the same precedence as the other deployment
+// settings. The explicit flag matters because --trust-proxy=false must be able
+// to override a config file that enables it.
+func (e *env) resolveTrustProxy(flagValue, flagSet bool) (bool, error) {
+	if flagSet {
+		return flagValue, nil
+	}
+	if raw := strings.TrimSpace(os.Getenv("OZDDNS_TRUST_PROXY")); raw != "" {
+		v, err := strconv.ParseBool(raw)
+		if err != nil {
+			return false, fmt.Errorf("OZDDNS_TRUST_PROXY must be true or false, got %q", raw)
+		}
+		return v, nil
+	}
+	if e.cfg != nil {
+		return e.cfg.TrustProxy, nil
+	}
+	return false, nil
 }
 
 // resolveBasePath applies the same precedence to the public mount prefix, and

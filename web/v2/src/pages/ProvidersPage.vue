@@ -17,7 +17,8 @@ const segments = computed(() => [
   ["all", "All", data.providers.length],
   ["ok", "Connected", data.providers.filter((provider) => provider.status === "ok" && provider.enabled).length],
   ["warn", "Attention", data.providers.filter((provider) => provider.status === "warn").length],
-  ["err", "Errors", data.providers.filter((provider) => provider.status === "err").length]
+  ["err", "Errors", data.providers.filter((provider) => provider.status === "err").length],
+  ["mute", "Disabled", data.providers.filter((provider) => !provider.enabled).length]
 ]);
 </script>
 
@@ -62,7 +63,10 @@ const segments = computed(() => [
       <div class="hstack" style="gap:6px;flex-wrap:wrap"><Pill v-for="zone in provider.zones" :key="zone" kind="mute">{{ zone }}</Pill></div>
       <div class="hstack between" style="border-top:1px solid var(--line-2);padding-top:12px">
         <span class="tiny muted">{{ provider.statusText }}</span>
-        <span class="hstack tiny muted" style="gap:6px"><Icon name="hash" />{{ t("{n} records", { n: provider.records }) }}</span>
+        <span class="hstack tiny muted" style="gap:6px">
+          <template v-if="getProviderType(provider.type)?.writeOnly"><Icon name="arrow-up-right" />{{ t("No read-back") }}</template>
+          <template v-else><Icon name="hash" />{{ t("{n} records", { n: provider.records }) }}</template>
+        </span>
       </div>
     </div>
   </div>

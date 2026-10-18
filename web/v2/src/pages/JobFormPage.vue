@@ -28,7 +28,19 @@ const form = reactive({
   advanced: false
 });
 
-watch(original, (job) => {
+// Seed the form from the task's *editable* fields only, and only when they
+// actually change: the panel refreshes itself in the background, and re-seeding
+// on every poll (while lastRun/nextRun tick along) would wipe unsaved edits.
+const seedSignature = computed(() => {
+  const job = original.value;
+  if (!job) return "";
+  const source = getSource(job.ipSourceId);
+  return JSON.stringify([job.name, job.targets, job.providerId, job.ipSourceId, job.intervalMinutes,
+    job.jitter, source?.family, source?.type, source?.target]);
+});
+
+watch(seedSignature, () => {
+  const job = original.value;
   if (!job) return;
   const source = getSource(job.ipSourceId);
   form.name = job.name;
@@ -95,20 +107,24 @@ async function save(): Promise<void> {
     return;
   }
   const family = pickedSource.value?.family || form.family;
-    const targets = domains.value.map((domain) => ({
+  const existingTargets = new Map((original.value?.targets || []).map((target) => [target.domain, target]));
+  const targets = domains.value.map((domain) => {
+    const existing = existingTargets.get(domain);
+    return {
       domain,
       type: (family === "v6" ? "AAAA" : "A") as "AAAA" | "A",
-      ttl: 300,
+      ttl: existing?.ttl || 300,
       proxied: supportsProxied.value ? form.proxied : false,
-      comment: ""
-    }));
+      comment: existing?.comment || ""
+    };
+  });
   const name = form.name || domains.value[0];
   try {
     let sourceId = pickedSource.value?.id;
     if (!sourceId) {
       if (bootState.value === "offline") {
         sourceId = `src-${Date.now()}`;
-        data.ipSources.push({ id: sourceId, name: `${name} source`, type: form.sourceType, family, target: form.sourceTarget, enabled: true });
+        data.ipSources.push({ id: sourceId, name: `${name} source`, type: form.sourceType, family, target: form.sourceTarget });
       } else {
         const source = await api.post("/ip-sources", { name: `${name} source`, type: form.sourceType, family, target: form.sourceTarget });
         sourceId = source.id;
@@ -120,9 +136,9 @@ async function save(): Promise<void> {
       ipSourceId: sourceId!,
       targets,
       intervalMinutes: Number(form.interval) || 5,
-      runOnChangeOnly: true,
+      runOnChangeOnly: original.value?.runOnChangeOnly ?? true,
       jitter: form.jitter,
-      enabled: true
+      enabled: original.value?.enabled ?? true
     };
     if (bootState.value === "offline") {
       if (original.value) Object.assign(original.value, payload);
@@ -130,7 +146,7 @@ async function save(): Promise<void> {
         id: `j-${Date.now()}`,
         ...payload,
         lastRun: null,
-        lastStatus: "nochange",
+        lastStatus: "not_run",
         nextRun: Date.now() + payload.intervalMinutes * 60000,
         current: "",
         desired: "",
@@ -186,7 +202,7 @@ async function save(): Promise<void> {
       <label>{{ t("IP source") }} <span class="req">*</span></label>
       <select v-model="form.sourcePickId" class="input">
         <option value="">{{ t("Create a new source") }}</option>
-        <option v-for="source in data.ipSources.filter(item => item.enabled !== false)" :key="source.id" :value="source.id">{{ source.name }} · {{ source.family === "v6" ? "IPv6" : "IPv4" }} · {{ source.target }}</option>
+        <option v-for="source in data.ipSources" :key="source.id" :value="source.id">{{ source.name }} · {{ source.family === "v6" ? "IPv6" : "IPv4" }} · {{ source.target }}</option>
       </select>
       <div v-if="pickedSource" class="callout">
         <div class="hstack wrap" style="gap:10px">

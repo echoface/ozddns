@@ -2,7 +2,7 @@ import { computed, defineComponent, h, ref } from "vue";
 import Icon from "./Icon.vue";
 import { fmtAgo, initials, looksMasked, t } from "../lib";
 import { getProviderType } from "../store";
-import type { Provider, RunStatus } from "../types";
+import type { JobStatus, Provider } from "../types";
 
 export const Pill = defineComponent({
   name: "Pill",
@@ -17,15 +17,16 @@ export const Pill = defineComponent({
 
 export const StatusPill = defineComponent({
   name: "StatusPill",
-  props: { status: { type: String as () => RunStatus, default: "nochange" } },
+  props: { status: { type: String as () => JobStatus, default: "not_run" } },
   setup(props) {
     const meta = computed(() => ({
       success: ["ok", "Updated", "check-circle"],
       nochange: ["mute", "No change", "circle-dot"],
       failed: ["err", "Failed", "x-circle"],
       skipped: ["info", "Skipped", "corner-down-right"],
-      running: ["coral", "Running", "loader"]
-    }[props.status] || ["mute", "No change", "circle-dot"]));
+      running: ["coral", "Running", "loader"],
+      not_run: ["mute", "Not run", "clock"]
+    }[props.status] || ["mute", "Not run", "clock"]));
     return () => h(Pill, { kind: meta.value[0] }, {
       default: () => [h(Icon, { name: meta.value[2] }), t(meta.value[1])]
     });
@@ -52,9 +53,14 @@ export const ProviderStatus = defineComponent({
   props: { provider: { type: Object as () => Provider, required: true } },
   setup(props) {
     return () => {
-      if (!props.provider.enabled) return h(Pill, { kind: "mute", dot: true }, () => t("Disabled"));
-      if (props.provider.status === "ok") return h(Pill, { kind: "ok", dot: true }, () => t("Connected"));
-      if (props.provider.status === "warn") return h(Pill, { kind: "warn", dot: true }, () => t("Attention"));
+      const provider = props.provider;
+      if (!provider.enabled) return h(Pill, { kind: "mute", dot: true }, () => t("Disabled"));
+      if (provider.status === "err") return h(Pill, { kind: "err", dot: true }, () => t("Error"));
+      if (provider.status === "warn") return h(Pill, { kind: "warn", dot: true }, () => t("Attention"));
+      // A write-only provider has no read API, so "Connected" would overstate
+      // what OzDDNS actually knows about it.
+      if (getProviderType(provider.type)?.writeOnly) return h(Pill, { kind: "info", dot: true }, () => t("Write-only"));
+      if (provider.status === "ok") return h(Pill, { kind: "ok", dot: true }, () => t("Connected"));
       return h(Pill, { kind: "err", dot: true }, () => t("Error"));
     };
   }

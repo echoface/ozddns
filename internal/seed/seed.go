@@ -19,8 +19,8 @@ func EnsureDefaults(ctx context.Context, store storage.Store) error {
 	}
 	if len(sources) == 0 {
 		defaults := []domain.IPSource{
-			{Name: "ipify (IPv4)", Type: domain.IPHTTP, Family: "v4", Target: "https://api.ipify.org", Enabled: true},
-			{Name: "ifconfig.co (IPv6)", Type: domain.IPHTTP, Family: "v6", Target: "https://v6.ifconfig.co", Enabled: true},
+			{Name: "ipify (IPv4)", Type: domain.IPHTTP, Family: "v4", Target: "https://api.ipify.org"},
+			{Name: "ifconfig.co (IPv6)", Type: domain.IPHTTP, Family: "v6", Target: "https://v6.ifconfig.co"},
 		}
 		for _, s := range defaults {
 			if err := store.IPSources().Create(ctx, s); err != nil {
@@ -66,10 +66,10 @@ func Demo(ctx context.Context, store storage.Store) error {
 	}
 
 	sources := []domain.IPSource{
-		{ID: "src-ipify-v4", Name: "ipify (IPv4)", Type: domain.IPHTTP, Family: "v4", Target: "https://api.ipify.org", Enabled: true},
-		{ID: "src-ifconfig-v6", Name: "ifconfig.co (IPv6)", Type: domain.IPHTTP, Family: "v6", Target: "https://v6.ifconfig.co", Enabled: true},
-		{ID: "src-en0", Name: "LAN interface · en0", Type: domain.IPInterface, Family: "v4", Target: "en0", Enabled: true},
-		{ID: "src-cmd-v6", Name: "Tailscale address", Type: domain.IPCommand, Family: "v6", Target: "tailscale ip -6", Enabled: true},
+		{ID: "src-ipify-v4", Name: "ipify (IPv4)", Type: domain.IPHTTP, Family: "v4", Target: "https://api.ipify.org"},
+		{ID: "src-ifconfig-v6", Name: "ifconfig.co (IPv6)", Type: domain.IPHTTP, Family: "v6", Target: "https://v6.ifconfig.co"},
+		{ID: "src-en0", Name: "LAN interface · en0", Type: domain.IPInterface, Family: "v4", Target: "en0"},
+		{ID: "src-cmd-v6", Name: "Tailscale address", Type: domain.IPCommand, Family: "v6", Target: "tailscale ip -6"},
 	}
 	for _, s := range sources {
 		if err := store.IPSources().Create(ctx, s); err != nil {
@@ -97,7 +97,7 @@ func Demo(ctx context.Context, store storage.Store) error {
 			Targets:         []domain.Target{{Domain: "*.ozhao.cn", Type: domain.RecordA, TTL: 3600, Comment: "catch-all"}},
 			IntervalMinutes: 30, RunOnChangeOnly: true, Jitter: true, Enabled: false},
 		{ID: "j-iot", Name: "IoT callback", ProviderID: "p-hook", IPSourceID: "src-en0",
-			Targets:         []domain.Target{{Domain: "iot.homelab.net", Type: domain.RecordCNAME, TTL: 300, Comment: "webhook target"}},
+			Targets:         []domain.Target{{Domain: "iot.homelab.net", Type: domain.RecordA, TTL: 300, Comment: "webhook target"}},
 			IntervalMinutes: 60, RunOnChangeOnly: true, Enabled: true},
 		{ID: "j-tail", Name: "Tailscale node", ProviderID: "p-duck", IPSourceID: "src-cmd-v6",
 			Targets:         []domain.Target{{Domain: "ozddns.duckdns.org", Type: domain.RecordAAAA, TTL: 60}},

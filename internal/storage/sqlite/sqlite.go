@@ -60,6 +60,12 @@ func (d *DB) States() storage.StateRepo { return stateRepo{d} }
 // Settings implements storage.Store.
 func (d *DB) Settings() storage.SettingsRepo { return settingsRepo{d} }
 
+// Config implements storage.Store.
+func (d *DB) Config() storage.ConfigRepo { return configRepo{d} }
+
+// Auth implements storage.Store.
+func (d *DB) Auth() storage.AuthRepo { return authRepo{d} }
+
 // ---------------------------------------------------------------------------
 // migrations
 // ---------------------------------------------------------------------------
@@ -80,7 +86,6 @@ var migrations = []string{
 		type TEXT NOT NULL,
 		family TEXT NOT NULL,
 		target TEXT NOT NULL,
-		enabled INTEGER NOT NULL DEFAULT 1,
 		created_at INTEGER NOT NULL,
 		updated_at INTEGER NOT NULL
 	);`,
@@ -126,30 +131,134 @@ var migrations = []string{
 		id INTEGER PRIMARY KEY CHECK (id = 1),
 		json TEXT NOT NULL
 	);`,
+	`CREATE TABLE IF NOT EXISTS auth_user (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		username TEXT NOT NULL,
+		password_hash TEXT NOT NULL,
+		totp_secret TEXT NOT NULL,
+		totp_last_step INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL
+	);`,
+	`CREATE TABLE IF NOT EXISTS auth_pending (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		username TEXT NOT NULL,
+		password_hash TEXT NOT NULL,
+		totp_secret TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		expires_at INTEGER NOT NULL
+	);`,
+	`CREATE TABLE IF NOT EXISTS auth_sessions (
+		token_hash TEXT PRIMARY KEY,
+		user_id INTEGER NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+		created_at INTEGER NOT NULL,
+		last_seen_at INTEGER NOT NULL,
+		idle_expires_at INTEGER NOT NULL,
+		absolute_expires_at INTEGER NOT NULL,
+		user_agent TEXT,
+		ip TEXT
+	);`,
+	`CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry ON auth_sessions(absolute_expires_at);`,
+	`CREATE TABLE IF NOT EXISTS auth_challenges (
+		token_hash TEXT PRIMARY KEY,
+		user_id INTEGER NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+		created_at INTEGER NOT NULL,
+		expires_at INTEGER NOT NULL,
+		attempts INTEGER NOT NULL DEFAULT 0
+	);`,
+	`CREATE TABLE IF NOT EXISTS auth_recovery_codes (
+		id TEXT PRIMARY KEY,
+		user_id INTEGER NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+		code_hash TEXT NOT NULL,
+		used_at INTEGER
+	);`,
+	`CREATE TABLE IF NOT EXISTS auth_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		at INTEGER NOT NULL,
+		event TEXT NOT NULL,
+		username TEXT,
+		detail TEXT,
+		ip TEXT,
+		user_agent TEXT
+	);`,
+	`CREATE INDEX IF NOT EXISTS idx_auth_events_at ON auth_events(at DESC);`,
 }
 
 func (d *DB) migrate(ctx context.Context) error {
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	for i, m := range migrations {
-		if _, err := d.db.ExecContext(ctx, m); err != nil {
+		if _, err := tx.ExecContext(ctx, m); err != nil {
 			return fmt.Errorf("migration %d: %w", i+1, err)
 		}
 	}
 	// Columns added after the first release. ensureColumn is a no-op when the
 	// column already exists, so this stays idempotent across restarts.
-	if err := d.ensureColumn(ctx, "sync_runs", "details_json", "TEXT"); err != nil {
+	if err := ensureColumn(ctx, tx, "sync_runs", "details_json", "TEXT"); err != nil {
 		return fmt.Errorf("migration: sync_runs.details_json: %w", err)
 	}
-	return nil
+	if err := ensureColumn(ctx, tx, "job_state", "source_fingerprint", "TEXT"); err != nil {
+		return fmt.Errorf("migration: job_state.source_fingerprint: %w", err)
+	}
+	// Basic auth is gone. Drop the old credential column so the database no
+	// longer carries a second, unused source of authentication truth.
+	if err := dropColumn(ctx, tx, "settings", "password_hash"); err != nil {
+		return fmt.Errorf("migration: settings.password_hash: %w", err)
+	}
+	// IP sources are read strategies, not independently enabled resources.
+	// Task enablement already decides whether a source is used; retaining a
+	// second flag made the panel hide sources while runs still used them.
+	if err := dropColumn(ctx, tx, "ip_sources", "enabled"); err != nil {
+		return fmt.Errorf("migration: ip_sources.enabled: %w", err)
+	}
+	return tx.Commit()
+}
+
+type schemaExecer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+func dropColumn(ctx context.Context, q schemaExecer, table, column string) error {
+	rows, err := q.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var (
+			cid, notNull, pk int
+			name, colType    string
+			defaultValue     sql.NullString
+		)
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &defaultValue, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == column {
+			found = true
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if !found {
+		return nil
+	}
+	_, err = q.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", table, column))
+	return err
 }
 
 // ensureColumn adds a column if the table does not already have it. SQLite has
 // no "ADD COLUMN IF NOT EXISTS", so we inspect the schema first.
-func (d *DB) ensureColumn(ctx context.Context, table, column, typ string) error {
-	rows, err := d.db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
+func ensureColumn(ctx context.Context, q schemaExecer, table, column, typ string) error {
+	rows, err := q.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	found := false
 	for rows.Next() {
 		var (
 			cid, notNull, pk int
@@ -160,13 +269,21 @@ func (d *DB) ensureColumn(ctx context.Context, table, column, typ string) error 
 			return err
 		}
 		if name == column {
-			return nil
+			found = true
+			break
 		}
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return err
 	}
-	_, err = d.db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, typ))
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if found {
+		return nil
+	}
+	_, err = q.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, typ))
 	return err
 }
 
@@ -284,7 +401,7 @@ func scanProvider(s scanner) (domain.Provider, error) {
 type ipSourceRepo struct{ d *DB }
 
 func (r ipSourceRepo) List(ctx context.Context) ([]domain.IPSource, error) {
-	rows, err := r.d.db.QueryContext(ctx, `SELECT id,name,type,family,target,enabled,created_at,updated_at FROM ip_sources ORDER BY created_at`)
+	rows, err := r.d.db.QueryContext(ctx, `SELECT id,name,type,family,target,created_at,updated_at FROM ip_sources ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -301,7 +418,7 @@ func (r ipSourceRepo) List(ctx context.Context) ([]domain.IPSource, error) {
 }
 
 func (r ipSourceRepo) Get(ctx context.Context, id string) (domain.IPSource, error) {
-	row := r.d.db.QueryRowContext(ctx, `SELECT id,name,type,family,target,enabled,created_at,updated_at FROM ip_sources WHERE id=?`, id)
+	row := r.d.db.QueryRowContext(ctx, `SELECT id,name,type,family,target,created_at,updated_at FROM ip_sources WHERE id=?`, id)
 	s, err := scanIPSource(row)
 	if err == sql.ErrNoRows {
 		return domain.IPSource{}, storage.ErrNotFound
@@ -315,15 +432,15 @@ func (r ipSourceRepo) Create(ctx context.Context, s domain.IPSource) error {
 	}
 	now := time.Now().UTC()
 	_, err := r.d.db.ExecContext(ctx,
-		`INSERT INTO ip_sources (id,name,type,family,target,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`,
-		s.ID, s.Name, s.Type, s.Family, s.Target, boolInt(s.Enabled), toMillis(now), toMillis(now))
+		`INSERT INTO ip_sources (id,name,type,family,target,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
+		s.ID, s.Name, s.Type, s.Family, s.Target, toMillis(now), toMillis(now))
 	return err
 }
 
 func (r ipSourceRepo) Update(ctx context.Context, s domain.IPSource) error {
 	_, err := r.d.db.ExecContext(ctx,
-		`UPDATE ip_sources SET name=?,type=?,family=?,target=?,enabled=?,updated_at=? WHERE id=?`,
-		s.Name, s.Type, s.Family, s.Target, boolInt(s.Enabled), toMillis(time.Now().UTC()), s.ID)
+		`UPDATE ip_sources SET name=?,type=?,family=?,target=?,updated_at=? WHERE id=?`,
+		s.Name, s.Type, s.Family, s.Target, toMillis(time.Now().UTC()), s.ID)
 	return err
 }
 
@@ -334,12 +451,10 @@ func (r ipSourceRepo) Delete(ctx context.Context, id string) error {
 
 func scanIPSource(s scanner) (domain.IPSource, error) {
 	var src domain.IPSource
-	var enabled int
 	var created, updated int64
-	if err := s.Scan(&src.ID, &src.Name, &src.Type, &src.Family, &src.Target, &enabled, &created, &updated); err != nil {
+	if err := s.Scan(&src.ID, &src.Name, &src.Type, &src.Family, &src.Target, &created, &updated); err != nil {
 		return domain.IPSource{}, err
 	}
-	src.Enabled = enabled == 1
 	src.CreatedAt = fromMillis(created)
 	src.UpdatedAt = fromMillis(updated)
 	return src, nil
@@ -449,11 +564,19 @@ func scanJob(s scanner) (domain.Job, error) {
 type runRepo struct{ d *DB }
 
 func (r runRepo) Insert(ctx context.Context, run domain.Run) (int64, error) {
+	return insertRun(ctx, r.d.db, run)
+}
+
+type sqlExecer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func insertRun(ctx context.Context, q sqlExecer, run domain.Run) (int64, error) {
 	details, err := marshalRunDetails(run.Details)
 	if err != nil {
 		return 0, err
 	}
-	res, err := r.d.db.ExecContext(ctx,
+	res, err := q.ExecContext(ctx,
 		`INSERT INTO sync_runs (job_id,started_at,finished_at,duration_ms,status,old_ip,new_ip,trigger,message,records,details_json)
 		 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 		run.JobID, toMillis(run.StartedAt), toMillis(run.FinishedAt), run.DurationMS,
@@ -462,6 +585,25 @@ func (r runRepo) Insert(ctx context.Context, run domain.Run) (int64, error) {
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+func (r runRepo) InsertWithState(ctx context.Context, run domain.Run, state domain.JobState) (int64, error) {
+	tx, err := r.d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	id, err := insertRun(ctx, tx, run)
+	if err != nil {
+		return 0, err
+	}
+	if err := upsertJobState(ctx, tx, state); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 func (r runRepo) Get(ctx context.Context, id int64) (domain.Run, error) {
@@ -567,14 +709,53 @@ func marshalRunDetails(details []domain.RunDetail) (any, error) {
 type stateRepo struct{ d *DB }
 
 func (r stateRepo) Get(ctx context.Context, jobID string) (domain.JobState, error) {
-	row := r.d.db.QueryRowContext(ctx, `SELECT job_id,last_status,last_run_at,next_run_at,current_ip,desired_ip,last_error,last_changed_at FROM job_state WHERE job_id=?`, jobID)
+	row := r.d.db.QueryRowContext(ctx, `SELECT job_id,last_status,last_run_at,next_run_at,current_ip,desired_ip,source_fingerprint,last_error,last_changed_at FROM job_state WHERE job_id=?`, jobID)
+	st, err := scanJobState(row)
+	if err == sql.ErrNoRows {
+		return domain.JobState{JobID: jobID}, nil
+	}
+	return st, err
+}
+
+func (r stateRepo) Upsert(ctx context.Context, s domain.JobState) error {
+	return upsertJobState(ctx, r.d.db, s)
+}
+
+func upsertJobState(ctx context.Context, q sqlExecer, s domain.JobState) error {
+	_, err := q.ExecContext(ctx,
+		`INSERT INTO job_state (job_id,last_status,last_run_at,next_run_at,current_ip,desired_ip,source_fingerprint,last_error,last_changed_at)
+		 VALUES (?,?,?,?,?,?,?,?,?)
+		 ON CONFLICT(job_id) DO UPDATE SET last_status=excluded.last_status,last_run_at=excluded.last_run_at,
+		   next_run_at=excluded.next_run_at,current_ip=excluded.current_ip,desired_ip=excluded.desired_ip,
+		   source_fingerprint=excluded.source_fingerprint,last_error=excluded.last_error,
+		   last_changed_at=excluded.last_changed_at`,
+		s.JobID, string(s.LastStatus), toMillis(s.LastRunAt), toMillis(s.NextRunAt),
+		s.CurrentIP, s.DesiredIP, s.SourceFingerprint, s.LastError, toMillis(s.LastChangedAt))
+	return err
+}
+
+func (r stateRepo) List(ctx context.Context) ([]domain.JobState, error) {
+	rows, err := r.d.db.QueryContext(ctx, `SELECT job_id,last_status,last_run_at,next_run_at,current_ip,desired_ip,source_fingerprint,last_error,last_changed_at FROM job_state`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.JobState
+	for rows.Next() {
+		st, err := scanJobState(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, st)
+	}
+	return out, rows.Err()
+}
+
+func scanJobState(s scanner) (domain.JobState, error) {
 	var st domain.JobState
 	var lastRun, nextRun, lastChanged int64
-	var status, cur, des, errMsg sql.NullString
-	if err := row.Scan(&st.JobID, &status, &lastRun, &nextRun, &cur, &des, &errMsg, &lastChanged); err != nil {
-		if err == sql.ErrNoRows {
-			return domain.JobState{JobID: jobID}, nil
-		}
+	var status, cur, des, fingerprint, errMsg sql.NullString
+	if err := s.Scan(&st.JobID, &status, &lastRun, &nextRun, &cur, &des, &fingerprint, &errMsg, &lastChanged); err != nil {
 		return domain.JobState{}, err
 	}
 	st.LastStatus = domain.RunStatus(status.String)
@@ -582,47 +763,10 @@ func (r stateRepo) Get(ctx context.Context, jobID string) (domain.JobState, erro
 	st.NextRunAt = fromMillis(nextRun)
 	st.CurrentIP = cur.String
 	st.DesiredIP = des.String
+	st.SourceFingerprint = fingerprint.String
 	st.LastError = errMsg.String
 	st.LastChangedAt = fromMillis(lastChanged)
 	return st, nil
-}
-
-func (r stateRepo) Upsert(ctx context.Context, s domain.JobState) error {
-	_, err := r.d.db.ExecContext(ctx,
-		`INSERT INTO job_state (job_id,last_status,last_run_at,next_run_at,current_ip,desired_ip,last_error,last_changed_at)
-		 VALUES (?,?,?,?,?,?,?,?)
-		 ON CONFLICT(job_id) DO UPDATE SET last_status=excluded.last_status,last_run_at=excluded.last_run_at,
-		   next_run_at=excluded.next_run_at,current_ip=excluded.current_ip,desired_ip=excluded.desired_ip,
-		   last_error=excluded.last_error,last_changed_at=excluded.last_changed_at`,
-		s.JobID, string(s.LastStatus), toMillis(s.LastRunAt), toMillis(s.NextRunAt),
-		s.CurrentIP, s.DesiredIP, s.LastError, toMillis(s.LastChangedAt))
-	return err
-}
-
-func (r stateRepo) List(ctx context.Context) ([]domain.JobState, error) {
-	rows, err := r.d.db.QueryContext(ctx, `SELECT job_id,last_status,last_run_at,next_run_at,current_ip,desired_ip,last_error,last_changed_at FROM job_state`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []domain.JobState
-	for rows.Next() {
-		var st domain.JobState
-		var lastRun, nextRun, lastChanged int64
-		var status, cur, des, errMsg sql.NullString
-		if err := rows.Scan(&st.JobID, &status, &lastRun, &nextRun, &cur, &des, &errMsg, &lastChanged); err != nil {
-			return nil, err
-		}
-		st.LastStatus = domain.RunStatus(status.String)
-		st.LastRunAt = fromMillis(lastRun)
-		st.NextRunAt = fromMillis(nextRun)
-		st.CurrentIP = cur.String
-		st.DesiredIP = des.String
-		st.LastError = errMsg.String
-		st.LastChangedAt = fromMillis(lastChanged)
-		out = append(out, st)
-	}
-	return out, rows.Err()
 }
 
 // ---------------------------------------------------------------------------
@@ -650,9 +794,99 @@ func (r settingsRepo) Get(ctx context.Context) (domain.Settings, error) {
 
 func (r settingsRepo) Save(ctx context.Context, s domain.Settings) error {
 	_, err := r.d.db.ExecContext(ctx,
-		`INSERT INTO settings (id,json) VALUES (1,?) ON CONFLICT(id) DO UPDATE SET json=excluded.json`,
+		`INSERT INTO settings (id,json) VALUES (1,?)
+		 ON CONFLICT(id) DO UPDATE SET json=excluded.json`,
 		jsonEncode(s))
 	return err
+}
+
+// ---------------------------------------------------------------------------
+// configuration import
+// ---------------------------------------------------------------------------
+
+type configRepo struct{ d *DB }
+
+func (r configRepo) Import(ctx context.Context, providers []domain.Provider, sources []domain.IPSource,
+	jobs []domain.Job, settings *domain.Settings, replace bool) error {
+	tx, err := r.d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if replace {
+		// Jobs own their state and history. Delete dependants before the job
+		// rows so a replace import also clears activity for the old topology.
+		for _, q := range []string{
+			`DELETE FROM sync_runs`,
+			`DELETE FROM job_state`,
+			`DELETE FROM sync_jobs`,
+			`DELETE FROM ip_sources`,
+			`DELETE FROM provider_instances`,
+		} {
+			if _, err := tx.ExecContext(ctx, q); err != nil {
+				return err
+			}
+		}
+	}
+
+	now := time.Now().UTC()
+	for _, p := range providers {
+		created, updated := p.CreatedAt, p.UpdatedAt
+		if created.IsZero() {
+			created = now
+		}
+		if updated.IsZero() {
+			updated = created
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO provider_instances (id,name,type,config_json,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
+			p.ID, p.Name, p.Type, jsonEncode(p.Config), boolInt(p.Enabled), toMillis(created), toMillis(updated)); err != nil {
+			return fmt.Errorf("provider %s: %w", p.ID, err)
+		}
+	}
+	for _, s := range sources {
+		created, updated := s.CreatedAt, s.UpdatedAt
+		if created.IsZero() {
+			created = now
+		}
+		if updated.IsZero() {
+			updated = created
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO ip_sources (id,name,type,family,target,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`,
+			s.ID, s.Name, string(s.Type), s.Family, s.Target, toMillis(created), toMillis(updated)); err != nil {
+			return fmt.Errorf("ip source %s: %w", s.ID, err)
+		}
+	}
+	for _, j := range jobs {
+		created, updated := j.CreatedAt, j.UpdatedAt
+		if created.IsZero() {
+			created = now
+		}
+		if updated.IsZero() {
+			updated = created
+		}
+		interval := j.IntervalMinutes
+		if interval <= 0 {
+			interval = 5
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO sync_jobs (id,name,provider_instance_id,ip_source_id,targets_json,interval_seconds,run_on_change_only,jitter,enabled,created_at,updated_at)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+			j.ID, j.Name, j.ProviderID, j.IPSourceID, jsonEncode(j.Targets), interval*60,
+			boolInt(j.RunOnChangeOnly), boolInt(j.Jitter), boolInt(j.Enabled), toMillis(created), toMillis(updated)); err != nil {
+			return fmt.Errorf("job %s: %w", j.ID, err)
+		}
+	}
+	if settings != nil {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO settings (id,json) VALUES (1,?)
+			 ON CONFLICT(id) DO UPDATE SET json=excluded.json`, jsonEncode(*settings)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func defaultSettings() domain.Settings {

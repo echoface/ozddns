@@ -39,11 +39,14 @@ func (p *fakeProvider) Apply(_ context.Context, ch domain.Change) error {
 }
 
 type fakeFactory struct {
-	typ  string
-	prov *fakeProvider
+	typ       string
+	prov      *fakeProvider
+	writeOnly bool
 }
 
-func (f fakeFactory) Meta() provider.Meta                           { return provider.Meta{Type: f.typ, Label: f.typ} }
+func (f fakeFactory) Meta() provider.Meta {
+	return provider.Meta{Type: f.typ, Label: f.typ, WriteOnly: f.writeOnly}
+}
 func (f fakeFactory) ValidateConfig(map[string]any) error           { return nil }
 func (f fakeFactory) New(map[string]any) (provider.Provider, error) { return f.prov, nil }
 
@@ -74,6 +77,9 @@ func job(name string, targets ...domain.Target) domain.Job {
 
 func prov(typ string) domain.Provider { return domain.Provider{ID: "p1", Name: "p", Type: typ} }
 func src() domain.IPSource            { return domain.IPSource{ID: "s1", Type: "fake", Family: "v4", Target: "x"} }
+func srcFor(family string) domain.IPSource {
+	return domain.IPSource{ID: "s1", Type: "fake", Family: family, Target: "x"}
+}
 
 // ---- cases ---------------------------------------------------------------
 
@@ -179,14 +185,15 @@ func TestReconcileReportsPerRecordDetails(t *testing.T) {
 	}
 }
 
-// REC-07: skipped and failed records are also described in the details.
-func TestReconcileDetailsForSkipAndFailure(t *testing.T) {
-	// No address for the family => skipped detail.
+// REC-07: source-resolution and provider-write failures are both surfaced.
+func TestReconcileDetailsForFailures(t *testing.T) {
+	// A source failure is not the same as an unconfigured address: report it as
+	// failed so the operator sees the actual error.
 	r, _ := setup("cf", nil, "", errors.New("no v6 address"))
-	res, _ := r.Reconcile(context.Background(), job("t", domain.Target{Domain: "v6.example.com", Type: domain.RecordAAAA}),
-		prov("cf"), src())
-	if len(res.Details) != 1 || res.Details[0].Action != domain.RunActionSkipped {
-		t.Fatalf("details = %+v", res.Details)
+	res, err := r.Reconcile(context.Background(), job("t", domain.Target{Domain: "v6.example.com", Type: domain.RecordAAAA}),
+		prov("cf"), srcFor("v6"))
+	if err == nil || res.Status != domain.StatusFailed {
+		t.Fatalf("source failure = %+v err=%v", res, err)
 	}
 
 	// Provider rejects the write => failed detail.
@@ -202,16 +209,25 @@ func TestReconcileDetailsForSkipAndFailure(t *testing.T) {
 	}
 }
 
-// REC-10: no address available => skipped (not failed), and no write.
-func TestReconcileSkipWhenNoAddress(t *testing.T) {
+// REC-10: a source resolution error is failed, not a misleading "no address"
+// skip, and never reaches the provider.
+func TestReconcileSourceFailureIsFailed(t *testing.T) {
 	r, fp := setup("cf", nil, "", errors.New("no v6 address"))
 	res, err := r.Reconcile(context.Background(), job("t", domain.Target{Domain: "v6.example.com", Type: domain.RecordAAAA}),
-		prov("cf"), src())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		prov("cf"), srcFor("v6"))
+	if err == nil {
+		t.Fatal("expected source failure")
 	}
-	if res.Status != domain.StatusSkipped || len(fp.applied) != 0 {
+	if res.Status != domain.StatusFailed || len(fp.applied) != 0 {
 		t.Fatalf("status=%s applied=%d", res.Status, len(fp.applied))
+	}
+}
+
+func TestPlanRejectsTargetFamilyMismatch(t *testing.T) {
+	r, _ := setup("cf", nil, "203.0.113.42", nil)
+	if _, err := r.Plan(context.Background(),
+		job("t", domain.Target{Domain: "v6.example.com", Type: domain.RecordAAAA}), src()); err == nil {
+		t.Fatal("an AAAA target must be rejected for a v4 source")
 	}
 }
 

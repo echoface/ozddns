@@ -1,8 +1,8 @@
 # OzDDNS deployment configuration.
 #
 # Read once at start-up. Each key is overridden by, in order:
-#   1. the matching command-line flag     (--listen / --db / --log-level / --base-path)
-#   2. the environment variable           (OZDDNS_LISTEN / OZDDNS_DB / OZDDNS_LOG_LEVEL / OZDDNS_BASE_PATH)
+#   1. the matching command-line flag     (--listen / --db / --log-level / --base-path / --trust-proxy)
+#   2. the environment variable           (OZDDNS_LISTEN / OZDDNS_DB / OZDDNS_LOG_LEVEL / OZDDNS_BASE_PATH / OZDDNS_TRUST_PROXY)
 #   3. the value below
 #
 # These are deployment knobs only. Providers, tasks, IP sources and the rest of
@@ -14,3 +14,8 @@ logLevel: info
 # e.g. https://app.example.com/ddns/ -> "/ddns". Leave "/" for a root mount or
 # a dedicated domain.
 basePath: /
+
+# Only enable this behind a reverse proxy that overwrites X-Forwarded-Proto
+# and X-Forwarded-For. It marks HTTPS session cookies Secure and preserves the
+# real client address for rate limits and local-only enrollment.
+trustProxy: false

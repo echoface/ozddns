@@ -4,8 +4,9 @@
 # sources can read the *host's* NICs — a bridged container only ever sees its
 # own veth pair, never en0/eth0 on the host. Because there is no port mapping in
 # host mode, the panel is exposed by OZDDNS_LISTEN instead; it stays on loopback
-# (127.0.0.1) so only this host can reach it. Set it to 0.0.0.0:9876 to expose
-# the panel — set a password first.
+# (127.0.0.1) so only this host can reach it. If you intentionally expose it on
+# 0.0.0.0:9876, enable authorization in Settings > Security (password + TOTP)
+# before allowing remote traffic.
 #
 # Host networking is Linux-only. On Docker Desktop (macOS/Windows) either enable
 # host networking in settings, or drop network_mode, restore the ports mapping

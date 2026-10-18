@@ -24,7 +24,7 @@ type Factory struct{}
 func (Factory) Meta() provider.Meta {
 	return provider.Meta{
 		Type: Type, Label: "Namecheap", Color: "namecheap", Tag: "namecheap",
-		Desc: "DDNS password from Advanced DNS",
+		Desc: "DDNS password from Advanced DNS", WriteOnly: true,
 		Fields: []provider.Field{
 			{Key: "password", Label: "DDNS Password", Type: provider.FieldSecret, Secret: true, Required: true},
 			{Key: "domain", Label: "Domain", Type: provider.FieldText, Required: true, Help: "The root domain, e.g. example.com"},
@@ -53,7 +53,7 @@ func (p *Provider) ListZones(ctx context.Context) ([]domain.Zone, error) {
 }
 
 func (p *Provider) ListRecords(ctx context.Context, name string, f domain.RecordFilter) ([]domain.Record, error) {
-	return nil, nil
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (p *Provider) Apply(ctx context.Context, ch domain.Change) error {

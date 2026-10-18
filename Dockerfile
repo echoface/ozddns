@@ -21,7 +21,7 @@ RUN go mod download
 COPY . .
 COPY --from=web /src/web/v2/dist ./web/v2/dist
 
-ARG VERSION=v1.0.0
+ARG VERSION=dev
 ARG BUILD=dev
 ARG COMMIT=unknown
 RUN CGO_ENABLED=0 go build -trimpath \

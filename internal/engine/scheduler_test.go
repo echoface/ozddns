@@ -106,3 +106,24 @@ func TestSchedulerRunOnStartDisabled(t *testing.T) {
 	case <-time.After(150 * time.Millisecond):
 	}
 }
+
+// A job still in flight must not be dispatched again while it runs, or a slow
+// reconciliation would write to the provider twice.
+func TestSchedulerDoesNotRedispatchInFlightJob(t *testing.T) {
+	calls := 0
+	s := NewScheduler(jobsWithOne(), fakeStateRepo{}, runnerFunc(func() { calls++ }), nil)
+
+	if !s.begin("j1") {
+		t.Fatal("first begin should succeed")
+	}
+	s.dispatchDue(context.Background())
+	if calls != 0 {
+		t.Fatalf("job was dispatched while already in flight: calls=%d", calls)
+	}
+
+	s.end("j1")
+	s.dispatchDue(context.Background())
+	if calls != 1 {
+		t.Fatalf("job was not dispatched after release: calls=%d", calls)
+	}
+}

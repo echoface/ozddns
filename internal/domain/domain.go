@@ -23,11 +23,22 @@ const (
 )
 
 // Family returns "v4" or "v6" for a record type.
+//
+// CNAME has no address family. It is retained as a constant only so old stored
+// jobs keep deserialising; the engine refuses to reconcile a CNAME target (its
+// value would be a hostname, which an IP source cannot provide), and job
+// validation rejects it outright. See engine.Reconciler.Reconcile.
 func (t RecordType) Family() string {
 	if t == RecordAAAA {
 		return "v6"
 	}
 	return "v4"
+}
+
+// IsAddressRecord reports whether a record type holds an IP address and can
+// therefore be driven by an IP source.
+func (t RecordType) IsAddressRecord() bool {
+	return t == RecordA || t == RecordAAAA
 }
 
 // Record is a single DNS record as returned by a provider.
@@ -106,7 +117,6 @@ type IPSource struct {
 	Type      IPSourceKind `json:"type"`
 	Family    string       `json:"family"` // v4 | v6
 	Target    string       `json:"target"`
-	Enabled   bool         `json:"enabled"`
 	CreatedAt time.Time    `json:"createdAt"`
 	UpdatedAt time.Time    `json:"updatedAt"`
 }
@@ -166,8 +176,13 @@ const (
 type RunAction string
 
 const (
-	RunActionCreated   RunAction = "created"
-	RunActionUpdated   RunAction = "updated"
+	RunActionCreated RunAction = "created"
+	RunActionUpdated RunAction = "updated"
+	// RunActionApplied is a write to a provider that cannot be read back
+	// (DuckDNS, Namecheap DDNS, custom webhooks). There is no record to diff,
+	// so OzDDNS reports "the address was pushed" rather than claiming it
+	// created or updated a specific record.
+	RunActionApplied   RunAction = "applied"
 	RunActionUnchanged RunAction = "unchanged"
 	RunActionSkipped   RunAction = "skipped"
 	RunActionFailed    RunAction = "failed"
@@ -203,14 +218,18 @@ type Run struct {
 
 // JobState is the mutable runtime state of a job (kept out of the job config).
 type JobState struct {
-	JobID         string    `json:"jobId"`
-	LastStatus    RunStatus `json:"lastStatus"`
-	LastRunAt     time.Time `json:"lastRunAt"`
-	NextRunAt     time.Time `json:"nextRunAt"`
-	CurrentIP     string    `json:"current"`
-	DesiredIP     string    `json:"desired"`
-	LastError     string    `json:"error,omitempty"`
-	LastChangedAt time.Time `json:"lastChangedAt"`
+	JobID      string    `json:"jobId"`
+	LastStatus RunStatus `json:"lastStatus"`
+	LastRunAt  time.Time `json:"lastRunAt"`
+	NextRunAt  time.Time `json:"nextRunAt"`
+	CurrentIP  string    `json:"current"`
+	DesiredIP  string    `json:"desired"`
+	// SourceFingerprint is a canonical digest of the addresses the job's source
+	// resolved on the last run. It lets a task skip the provider entirely when
+	// the address is unchanged (run-on-change-only, and write-only providers).
+	SourceFingerprint string    `json:"sourceFingerprint,omitempty"`
+	LastError         string    `json:"error,omitempty"`
+	LastChangedAt     time.Time `json:"lastChangedAt"`
 }
 
 // ---------------------------------------------------------------------------
@@ -244,11 +263,6 @@ type Settings struct {
 	// not an archive, so the database cannot grow without bound. Zero means
 	// "use the built-in default" (see app.DefaultRunRetentionDays).
 	RunRetentionDays int            `json:"runRetentionDays"`
-	Username         string         `json:"username"`
-	PasswordHash     string         `json:"-"`
-	PasswordSet      bool           `json:"passwordSet"`
-	AllowWAN         bool           `json:"allowWan"`
-	TLS              bool           `json:"tls"`
 	Notifications    []Notification `json:"notifications"`
 }
 

@@ -31,6 +31,9 @@ func RetentionDays(s domain.Settings) int {
 // PurgeRuns deletes execution history older than the retention window and
 // reports how many rows went away.
 func (a *App) PurgeRuns(ctx context.Context) (int64, error) {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
 	s, err := a.Store.Settings().Get(ctx)
 	if err != nil {
 		return 0, err
@@ -70,6 +73,9 @@ func (a *App) RunRetentionLoop(ctx context.Context) {
 
 // ListRuns returns execution history, newest first.
 func (a *App) ListRuns(ctx context.Context, jobID string, status domain.RunStatus, limit int) ([]domain.Run, error) {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
 	if limit <= 0 {
 		limit = 200
 	}
@@ -78,5 +84,7 @@ func (a *App) ListRuns(ctx context.Context, jobID string, status domain.RunStatu
 
 // GetRun returns one run.
 func (a *App) GetRun(ctx context.Context, id int64) (domain.Run, error) {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
 	return a.Store.Runs().Get(ctx, id)
 }

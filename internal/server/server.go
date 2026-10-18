@@ -2,7 +2,6 @@
 package server
 
 import (
-	"crypto/subtle"
 	"encoding/json"
 	"log/slog"
 	"net"
@@ -11,6 +10,11 @@ import (
 	"time"
 
 	"github.com/echoface/ozddns/internal/app"
+)
+
+const (
+	maxAPIRequestBody  = 8 << 20
+	maxAuthRequestBody = 64 << 10
 )
 
 // Server wires the HTTP API and the panel.
@@ -23,7 +27,13 @@ type Server struct {
 	// the proxy side. See basePath below.
 	BasePath string
 	Panel    http.Handler
-	mux      *http.ServeMux
+	// TrustProxy makes the server honor X-Forwarded-Proto for the Secure cookie
+	// flag and X-Forwarded-For for client classification. Leave it off unless
+	// every request really comes through a trusted reverse proxy that overwrites
+	// both headers.
+	TrustProxy bool
+	mux        *http.ServeMux
+	limiter    *attemptLimiter
 }
 
 // New builds a server. panel may be nil to disable the UI.
@@ -31,14 +41,14 @@ func New(a *app.App, panel http.Handler, log *slog.Logger) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
-	s := &Server{App: a, Log: log, Panel: panel, BasePath: "/", mux: http.NewServeMux()}
+	s := &Server{App: a, Log: log, Panel: panel, BasePath: "/", mux: http.NewServeMux(), limiter: newAttemptLimiter()}
 	s.routes()
 	return s
 }
 
 // Handler returns the fully-wrapped handler.
 func (s *Server) Handler() http.Handler {
-	return s.recoverer(s.basePath(s.logger(s.auth(s.mux))))
+	return s.recoverer(s.securityHeaders(s.basePath(s.logger(s.limitRequestBody(s.sameOrigin(s.auth(s.mux)))))))
 }
 
 // basePath makes the daemon own its public prefix instead of pushing that job
@@ -81,6 +91,17 @@ func (s *Server) routes() {
 	// Liveness probe: unauthenticated on purpose so container/orchestrator
 	// health checks keep working even when a password is set.
 	m.HandleFunc("GET /healthz", s.handleHealth)
+	m.HandleFunc("GET /api/v1/auth/state", s.handleAuthState)
+	m.HandleFunc("POST /api/v1/auth/setup/start", s.handleAuthSetupStart)
+	m.HandleFunc("POST /api/v1/auth/setup/verify", s.handleAuthSetupVerify)
+	m.HandleFunc("POST /api/v1/auth/setup/cancel", s.handleAuthSetupCancel)
+	m.HandleFunc("POST /api/v1/auth/login", s.handleAuthLogin)
+	m.HandleFunc("POST /api/v1/auth/mfa", s.handleAuthMFA)
+	m.HandleFunc("POST /api/v1/auth/logout", s.handleAuthLogout)
+	m.HandleFunc("GET /api/v1/auth/me", s.handleAuthMe)
+	m.HandleFunc("POST /api/v1/auth/disable", s.handleAuthDisable)
+	m.HandleFunc("POST /api/v1/auth/recovery-codes", s.handleAuthRecoveryCodes)
+	m.HandleFunc("GET /api/v1/auth/events", s.handleAuthEvents)
 	m.HandleFunc("GET /api/v1/bootstrap", s.handleBootstrap)
 	m.HandleFunc("GET /api/v1/provider-types", s.handleProviderTypes)
 	m.HandleFunc("GET /api/v1/ip-source-types", s.handleSourceTypes)
@@ -118,7 +139,6 @@ func (s *Server) routes() {
 
 	m.HandleFunc("GET /api/v1/settings", s.handleGetSettings)
 	m.HandleFunc("PATCH /api/v1/settings", s.handleUpdateSettings)
-	m.HandleFunc("POST /api/v1/settings/password", s.handleSetPassword)
 	m.HandleFunc("POST /api/v1/settings/test-notify", s.handleTestNotify)
 	m.HandleFunc("GET /api/v1/config/export", s.handleExportConfig)
 	m.HandleFunc("POST /api/v1/config/import", s.handleImportConfig)
@@ -129,34 +149,6 @@ func (s *Server) routes() {
 }
 
 // ---- middleware ----------------------------------------------------------
-
-func (s *Server) auth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" {
-			next.ServeHTTP(w, r)
-			return
-		}
-		settings, err := s.App.GetSettings(r.Context())
-		if err != nil || !settings.PasswordSet {
-			next.ServeHTTP(w, r)
-			return
-		}
-		user, pass, ok := r.BasicAuth()
-		if ok && constantEq(user, settings.Username) && s.App.CheckPassword(r.Context(), user, pass) {
-			next.ServeHTTP(w, r)
-			return
-		}
-		w.Header().Set("WWW-Authenticate", `Basic realm="OzDDNS"`)
-		writeError(w, http.StatusUnauthorized, "authentication required")
-	})
-}
-
-func constantEq(a, b string) bool {
-	if b == "" {
-		return true
-	}
-	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
-}
 
 func (s *Server) logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -169,6 +161,44 @@ func (s *Server) logger(next http.Handler) http.Handler {
 		next.ServeHTTP(sw, r)
 		s.Log.Debug("http", "method", r.Method, "path", r.URL.Path, "status", sw.status,
 			"dur", time.Since(start).String(), "from", remoteIP(r))
+	})
+}
+
+// securityHeaders applies browser hardening to both the panel and the API.
+// The CSP intentionally only constrains framing, base URLs and plugin content;
+// the panel uses inline style attributes and Google-hosted fonts, so a stricter
+// resource policy would require a separate frontend compatibility pass.
+func (s *Server) securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		h.Set("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'; object-src 'none'")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// limitRequestBody bounds unauthenticated JSON parsing and prevents a client
+// from making the daemon buffer an arbitrarily large request. Auth payloads are
+// tiny; configuration imports are the only API that legitimately needs room.
+func (s *Server) limitRequestBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isAPI(r) || r.Body == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		limit := int64(maxAPIRequestBody)
+		if strings.HasPrefix(r.URL.Path, "/api/v1/auth/") {
+			limit = maxAuthRequestBody
+		}
+		if r.ContentLength > limit {
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
+		next.ServeHTTP(w, r)
 	})
 }
 

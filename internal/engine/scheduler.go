@@ -31,6 +31,7 @@ type Scheduler struct {
 	mu         sync.RWMutex
 	running    bool
 	started    time.Time
+	inflight   map[string]struct{} // jobs currently executing, so a slow run is not re-dispatched
 	stop       chan struct{}
 	stopOnce   sync.Once
 	reload     chan struct{}
@@ -49,7 +50,7 @@ func NewScheduler(jobs storage.JobRepo, states storage.StateRepo, runner JobRunn
 	}
 	return &Scheduler{Jobs: jobs, States: states, Runner: runner, Log: log,
 		tick: DefaultTick, workers: DefaultWorkers, runOnStart: true, running: true,
-		stop: make(chan struct{}), reload: make(chan struct{}, 1)}
+		inflight: map[string]struct{}{}, stop: make(chan struct{}), reload: make(chan struct{}, 1)}
 }
 
 // Start begins the scheduling loop (non-blocking).
@@ -182,17 +183,41 @@ func (s *Scheduler) dispatchDue(ctx context.Context) {
 		if !st.NextRunAt.IsZero() && st.NextRunAt.After(now) {
 			continue
 		}
+		// A run that outlives the tick interval must not be dispatched again
+		// while it is still in flight, or the same job would write twice.
+		if !s.begin(j.ID) {
+			continue
+		}
 		sem <- struct{}{}
 		wg.Add(1)
 		go func(j domain.Job) {
 			defer wg.Done()
 			defer func() { <-sem }()
+			defer s.end(j.ID)
 			if _, err := s.Runner.RunJob(ctx, j.ID, domain.TriggerSchedule); err != nil {
 				s.Log.Warn("scheduler: job failed", "job", j.ID, "err", err)
 			}
 		}(j)
 	}
 	wg.Wait()
+}
+
+// begin marks a job as running, returning false if it already is.
+func (s *Scheduler) begin(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.inflight[id]; ok {
+		return false
+	}
+	s.inflight[id] = struct{}{}
+	return true
+}
+
+// end clears a job's running mark.
+func (s *Scheduler) end(id string) {
+	s.mu.Lock()
+	delete(s.inflight, id)
+	s.mu.Unlock()
 }
 
 // NextRun computes the next due time for a job, applying optional jitter.

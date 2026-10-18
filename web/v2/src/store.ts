@@ -1,16 +1,46 @@
 import { computed, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import { applyTheme, setLocale, setTimeZone, t, themePreference } from "./lib";
-import type { AppData, IPSource, Job, ModalState, Provider, Run, Toast } from "./types";
+import type {
+  AppData,
+  AuthEvent,
+  AuthSetupInfo,
+  AuthSetupResult,
+  AuthState,
+  IPFamilyInfo,
+  IPFamilyStatus,
+  IPInfo,
+  IPSource,
+  Job,
+  JobStatus,
+  ModalState,
+  Provider,
+  Run,
+  Toast
+} from "./types";
 
 // The panel addresses its own origin's API. BASE_URL is relative in production
 // ("./"), so this resolves against the document's <base href> — the mount point
 // the daemon was started with — and against "/" in the dev server.
 const base = `${import.meta.env.BASE_URL}api/v1`;
-let auth = sessionStorage.getItem("ozddns.auth") || "";
 let toastSequence = 0;
 
 export const bootState = ref<"loading" | "ready" | "offline">("loading");
+export const authState = ref<AuthState>({
+  enabled: false,
+  authenticated: false,
+  setupPending: false,
+  recoveryCodesRemaining: 0,
+  sessions: 0,
+  listen: "",
+  exposed: false
+});
+// offlineReason carries the failure that stopped the first load, and
+// staleSince marks the moment a later poll lost the daemon. Both exist so the
+// panel can say "I could not reach the API" instead of quietly rendering the
+// bundled sample dataset as if it were the user's instance.
+export const offlineReason = ref("");
+export const staleSince = ref<number | null>(null);
 export const navOpen = ref(false);
 export const schedulerRunning = ref(true);
 export const modal = ref<ModalState | null>(null);
@@ -46,7 +76,9 @@ function mapProvider(p: any): Provider {
 
 function mapJob(j: any): Job {
   const state = j.state || {};
-  const status = state.lastStatus || "nochange";
+  const status: JobStatus = ["success", "nochange", "failed", "skipped", "running"].includes(state.lastStatus)
+    ? state.lastStatus
+    : "not_run";
   return {
     id: j.id,
     name: j.name,
@@ -84,6 +116,34 @@ function mapRun(run: any): Run {
   };
 }
 
+function mapIPFamily(item: any): IPFamilyInfo {
+  const status = ["ok", "error", "no_active_tasks"].includes(item?.status)
+    ? item.status as IPFamilyStatus
+    : "no_active_tasks";
+  return {
+    address: item?.address || "",
+    sourceId: item?.sourceId || "",
+    source: item?.source || "",
+    sourceTarget: item?.sourceTarget || "",
+    tasks: Number(item?.tasks) || 0,
+    status,
+    error: item?.error || "",
+    checkedAt: toMs(item?.checkedAt)
+  };
+}
+
+function mapIPInfo(payload: any): IPInfo {
+  return {
+    v4: mapIPFamily(payload?.v4),
+    v6: mapIPFamily(payload?.v6),
+    checkedAt: toMs(payload?.checkedAt)
+  };
+}
+
+export function updateIPInfo(payload: any): void {
+  data.ipInfo = mapIPInfo(payload);
+}
+
 function mapSettings(settings: any): any {
   settings ||= {};
   return {
@@ -98,10 +158,6 @@ function mapSettings(settings: any): any {
       schedulerWorkers: settings.schedulerWorkers || 4,
       runOnStart: settings.runOnStart !== false,
       runRetentionDays: settings.runRetentionDays || 1
-    },
-    security: {
-      username: settings.username || "",
-      passwordSet: !!settings.passwordSet
     },
     notify: {
       webhooks: (settings.notifications || []).map((item: any) => ({
@@ -137,18 +193,7 @@ function applyBootstrap(payload: any): void {
   data.providers = (payload.providers || []).map(mapProvider);
   data.jobs = (payload.jobs || []).map(mapJob);
   data.runs = (payload.runs || []).map(mapRun);
-  const ip = payload.ip || {};
-  const checkedAt = toMs(ip.checkedAt);
-  // Bootstrap returns the cached public address; it can be empty while the
-  // background probe is still running, so never blank a value we already have.
-  data.ipInfo = {
-    v4: ip.v4 || data.ipInfo.v4,
-    v4Source: ip.v4Source || data.ipInfo.v4Source,
-    v4Checked: checkedAt || data.ipInfo.v4Checked,
-    v6: ip.v6 || data.ipInfo.v6,
-    v6Source: ip.v6Source || data.ipInfo.v6Source,
-    v6Checked: checkedAt || data.ipInfo.v6Checked
-  };
+  data.ipInfo = mapIPInfo(payload.ip || {});
   const status = payload.status || {};
   data.runtime = {
     scheduler: status.scheduler,
@@ -185,7 +230,6 @@ async function request(path: string, options: RequestInit = {}): Promise<any> {
   const headers = new Headers(options.headers);
   headers.set("Accept", "application/json");
   if (options.body) headers.set("Content-Type", "application/json");
-  if (auth) headers.set("Authorization", auth);
   const response = await fetch(`${base}${path}`, { ...options, headers, credentials: "same-origin" });
   const text = await response.text();
   let body: any = null;
@@ -204,7 +248,6 @@ export const api = {
   get: (path: string) => request(path),
   download: async (path: string) => {
     const headers = new Headers({ Accept: "application/json" });
-    if (auth) headers.set("Authorization", auth);
     const response = await fetch(`${base}${path}`, { headers, credentials: "same-origin" });
     if (!response.ok) {
       const body = await response.json().catch(() => null);
@@ -232,6 +275,12 @@ export function dismissToast(id: number): void {
 export function fail(error: unknown, title = t("Something went wrong")): void {
   const err = error as Error & { status?: number };
   if (err?.status === 401) {
+    authState.value = { ...authState.value, authenticated: false, username: "", sessions: 0, recoveryCodesRemaining: 0 };
+    if (location.hash.startsWith("#/login")) {
+      // Already on the sign-in page: it renders its own inline message, so a
+      // second "sign-in required" toast would only add noise.
+      return;
+    }
     location.hash = "#/login";
     notify("err", t("Sign-in required"), t("Enter your credentials to continue."));
     return;
@@ -249,18 +298,72 @@ export async function refresh(quiet = false): Promise<void> {
 }
 
 export async function boot(): Promise<void> {
+  bootState.value = "loading";
   try {
+    const state = await loadAuthState();
+    if (state.enabled && !state.authenticated) {
+      bootState.value = "ready";
+      offlineReason.value = "";
+      staleSince.value = null;
+      location.hash = "#/login";
+      return;
+    }
     await refresh(true);
+    offlineReason.value = "";
+    staleSince.value = null;
   } catch (error) {
     const err = error as Error & { status?: number };
     if (err?.status === 401) {
+      authState.value = { ...authState.value, authenticated: false, username: "", sessions: 0, recoveryCodesRemaining: 0 };
       bootState.value = "ready";
+      offlineReason.value = "";
       location.hash = "#/login";
     } else {
+      // The shell loaded but the API did not answer. The panel says so plainly
+      // and shows no data at all — the sample dataset bundled for first paint
+      // must never be mistaken for a live instance.
       bootState.value = "offline";
-      schedulerRunning.value = fallback.scheduler?.running !== false;
+      offlineReason.value = err?.message || String(error);
+      staleSince.value = null;
+      schedulerRunning.value = false;
       setTimeZone(data.settings.general.timezone);
     }
+  }
+}
+
+// retryBoot re-runs the first load from the offline screen.
+export function retryBoot(): void {
+  if (bootState.value === "loading") return;
+  void boot();
+}
+
+let polling = false;
+
+// poll silently re-reads the current state so scheduled runs, background
+// refreshes and other tabs show up without a manual reload. It is deliberately
+// quiet: a failure keeps the last good data instead of flashing an error, and
+// it never runs while the tab is hidden or the sign-in page is showing.
+export async function poll(): Promise<void> {
+  if (polling || bootState.value !== "ready" || document.hidden) return;
+  if (location.hash.startsWith("#/login")) return;
+  polling = true;
+  try {
+    applyBootstrap(await api.get("/bootstrap"));
+    staleSince.value = null;
+  } catch (error) {
+    const err = error as Error & { status?: number };
+    if (err?.status === 401) {
+      // The session expired or was revoked from another browser.
+      authState.value = { ...authState.value, authenticated: false, username: "", sessions: 0, recoveryCodesRemaining: 0 };
+      location.hash = "#/login";
+      notify("err", t("Sign-in required"), t("Enter your credentials to continue."));
+    } else if (staleSince.value === null) {
+      // The daemon went away after a good load: keep the last good data (it is
+      // still the best information available) but say that it is stale.
+      staleSince.value = Date.now();
+    }
+  } finally {
+    polling = false;
   }
 }
 
@@ -358,18 +461,40 @@ export async function toggleJob(job: Job): Promise<void> {
 }
 
 export async function validateProvider(provider: Provider): Promise<void> {
-  notify("info", t("Validating {name}…", { name: provider.name }), t("Checking credentials & zones."), 2000);
+  const writeOnly = !!getProviderType(provider.type)?.writeOnly;
+  notify("info", t("Validating {name}…", { name: provider.name }),
+    t(writeOnly ? "This provider has no read API — there is nothing to verify." : "Checking credentials & zones."), 2000);
   if (bootState.value === "offline") {
     provider.status = provider.type === "godaddy" ? "err" : "ok";
     notify(provider.status === "ok" ? "ok" : "err",
-      t(provider.status === "ok" ? "{name} is valid" : "{name} failed validation", { name: provider.name }),
-      provider.status === "ok" ? t("Credentials and zones look good.") : t("Invalid credentials (401)."));
+      t(provider.status === "ok" ? (writeOnly ? "{name} — nothing to verify" : "{name} is valid") : "{name} failed validation", { name: provider.name }),
+      provider.status === "ok"
+        ? t(writeOnly ? "Nothing to verify — credentials are used on the next run." : "Credentials and zones look good.")
+        : t("Invalid credentials (401)."));
     return;
   }
   const result = await api.post(`/providers/${provider.id}/validate`);
-  notify(result.ok ? "ok" : "err", t(result.ok ? "{name} is valid" : "{name} failed validation", { name: provider.name }),
-    result.ok ? t("Credentials and zones look good.") : result.error || t("The provider rejected the request."));
+  notify(result.ok ? "ok" : "err",
+    t(result.ok ? (writeOnly ? "{name} — nothing to verify" : "{name} is valid") : "{name} failed validation", { name: provider.name }),
+    result.ok
+      ? t(writeOnly ? "Nothing to verify — credentials are used on the next run." : "Credentials and zones look good.")
+      : result.error || t("The provider rejected the request."));
   await refresh(true);
+}
+
+// toggleProvider enables or disables a provider. While disabled, every task
+// that writes through it is skipped instead of failing.
+export async function toggleProvider(provider: Provider): Promise<void> {
+  const next = !provider.enabled;
+  if (bootState.value === "offline") provider.enabled = next;
+  else {
+    const updated = await api.patch(`/providers/${provider.id}`, { enabled: next });
+    const index = data.providers.findIndex((item) => item.id === provider.id);
+    if (index >= 0) data.providers.splice(index, 1, mapProvider(updated));
+    await refresh(true);
+  }
+  notify(next ? "ok" : "info", t(next ? "Enabled {name}" : "Disabled {name}", { name: provider.name }),
+    t(next ? "Tasks that use it will run again." : "Tasks that use it are skipped until it is enabled."));
 }
 
 export function confirmModal(title: string, body: string, confirm: string, action: () => void | Promise<void>, danger = true): void {
@@ -417,17 +542,102 @@ export async function saveThemePreference(): Promise<void> {
   }
 }
 
-export async function signIn(username: string, password: string): Promise<void> {
-  auth = `Basic ${btoa(`${username}:${password}`)}`;
-  sessionStorage.setItem("ozddns.auth", auth);
+export async function loadAuthState(): Promise<AuthState> {
+  const state = await api.get("/auth/state");
+  authState.value = {
+    enabled: !!state.enabled,
+    authenticated: !!state.authenticated,
+    setupPending: !!state.setupPending,
+    username: state.username || "",
+    recoveryCodesRemaining: state.recoveryCodesRemaining || 0,
+    sessions: state.sessions || 0,
+    listen: state.listen || "",
+    exposed: !!state.exposed
+  };
+  return authState.value;
+}
+
+export async function login(username: string, password: string): Promise<string> {
+  const result = await api.post("/auth/login", { username, password });
+  if (!result?.challenge) throw new Error(t("The server did not start a sign-in challenge."));
+  return String(result.challenge);
+}
+
+export async function verifyMfa(challenge: string, code: string): Promise<void> {
+  await api.post("/auth/mfa", { challenge, code });
+  await loadAuthState();
+  await refresh(true);
+  bootState.value = "ready";
+  staleSince.value = null;
+}
+
+export async function logout(): Promise<void> {
+  await api.post("/auth/logout");
+  authState.value = { ...authState.value, authenticated: false, username: "", sessions: 0, recoveryCodesRemaining: 0 };
+  bootState.value = "ready";
+  location.hash = "#/login";
+}
+
+export async function signOut(): Promise<void> {
   try {
-    await api.get("/status");
-    await refresh(true);
+    await logout();
   } catch (error) {
-    auth = "";
-    sessionStorage.removeItem("ozddns.auth");
-    throw error;
+    fail(error, t("Could not sign out"));
   }
+}
+
+export async function startAuthSetup(username: string, password: string): Promise<AuthSetupInfo> {
+  const info = await api.post("/auth/setup/start", { username, password });
+  authState.value = { ...authState.value, enabled: false, authenticated: false, setupPending: true };
+  return {
+    secret: String(info.secret || ""),
+    otpauthUrl: String(info.otpauthUrl || ""),
+    qrCodeDataUrl: String(info.qrCodeDataUrl || ""),
+    expiresAt: String(info.expiresAt || "")
+  };
+}
+
+export async function verifyAuthSetup(code: string): Promise<AuthSetupResult> {
+  const result = await api.post("/auth/setup/verify", { code });
+  await loadAuthState();
+  await refresh(true);
+  bootState.value = "ready";
+  return {
+    recoveryCodes: (result.recoveryCodes || []).map(String),
+    user: result.user || { username: authState.value.username || "" }
+  };
+}
+
+export async function cancelAuthSetup(): Promise<void> {
+  await api.post("/auth/setup/cancel");
+  authState.value = { ...authState.value, setupPending: false };
+}
+
+export async function disableAuth(password: string, code: string): Promise<void> {
+  await api.post("/auth/disable", { password, code });
+  authState.value = {
+    enabled: false,
+    authenticated: false,
+    setupPending: false,
+    recoveryCodesRemaining: 0,
+    sessions: 0,
+    listen: authState.value.listen,
+    exposed: authState.value.exposed
+  };
+  await refresh(true);
+  bootState.value = "ready";
+}
+
+export async function regenerateRecoveryCodes(password: string, code: string): Promise<string[]> {
+  const result = await api.post("/auth/recovery-codes", { password, code });
+  await loadAuthState();
+  return (result.recoveryCodes || []).map(String);
+}
+
+export async function loadAuthEvents(): Promise<AuthEvent[]> {
+  if (!authState.value.enabled || !authState.value.authenticated) return [];
+  const events = await api.get("/auth/events");
+  return Array.isArray(events) ? events : [];
 }
 
 export const failingJobs = computed(() => data.jobs.filter((job) => job.lastStatus === "failed"));

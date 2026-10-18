@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -121,15 +122,29 @@ func (e *env) cmdIP(args []string) int {
 		return 2
 	}
 	return e.withApp(func(ctx context.Context, a *app.App) int {
-		ip := a.CurrentIP(ctx)
+		ip := a.ResolveIP(ctx)
 		if e.json {
 			e.printJSON(ip)
 			return 0
 		}
-		fmt.Fprintf(e.out, "IPv4  %-40s (%s)\n", orDash(ip.V4), orDash(ip.V4Source))
-		fmt.Fprintf(e.out, "IPv6  %-40s (%s)\n", orDash(ip.V6), orDash(ip.V6Source))
+		printIPFamily(e.out, "IPv4", ip.V4)
+		printIPFamily(e.out, "IPv6", ip.V6)
 		return 0
 	})
+}
+
+func printIPFamily(w io.Writer, label string, result app.IPFamilyResult) {
+	source := result.Source
+	if result.SourceTarget != "" {
+		source += " · " + result.SourceTarget
+	}
+	if result.Status == app.IPStatusNoActiveTasks {
+		source = "no enabled task uses a source"
+	}
+	fmt.Fprintf(w, "%s  %-40s (%s)\n", label, orDash(result.Address), orDash(source))
+	if result.Status == app.IPStatusError && result.Error != "" {
+		fmt.Fprintf(w, "      error: %s\n", result.Error)
+	}
 }
 
 func orDash(s string) string {
@@ -137,6 +152,20 @@ func orDash(s string) string {
 		return "—"
 	}
 	return s
+}
+
+func boolWord(value bool, yes, no string) string {
+	if value {
+		return yes
+	}
+	return no
+}
+
+// isHelp reports whether a command-group token asks for that group's usage
+// text ("ozddns job -h"), which every group answers the same way as running
+// the group with no arguments.
+func isHelp(token string) bool {
+	return token == "help" || token == "-h" || token == "--help"
 }
 
 func flush(w *tabwriter.Writer, e *env) int {
@@ -149,7 +178,7 @@ func flush(w *tabwriter.Writer, e *env) int {
 // ---- provider ------------------------------------------------------------
 
 func (e *env) cmdProvider(args []string) int {
-	if len(args) == 0 {
+	if len(args) == 0 || isHelp(args[0]) {
 		fmt.Fprintln(e.out, "usage: ozddns provider <list|add|validate|zones|rm>")
 		return 0
 	}
@@ -289,7 +318,7 @@ func (e *env) providerRemove(args []string) int {
 // ---- source --------------------------------------------------------------
 
 func (e *env) cmdSource(args []string) int {
-	if len(args) == 0 {
+	if len(args) == 0 || isHelp(args[0]) {
 		fmt.Fprintln(e.out, "usage: ozddns source <list|add|test|rm>")
 		return 0
 	}
@@ -305,9 +334,9 @@ func (e *env) cmdSource(args []string) int {
 				return 0
 			}
 			w := e.table()
-			fmt.Fprintln(w, "ID\tNAME\tTYPE\tFAMILY\tTARGET\tENABLED")
+			fmt.Fprintln(w, "ID\tNAME\tTYPE\tFAMILY\tTARGET")
 			for _, s := range srcs {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%t\n", s.ID, s.Name, s.Type, s.Family, s.Target, s.Enabled)
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", s.ID, s.Name, s.Type, s.Family, s.Target)
 			}
 			return flush(w, e)
 		})
@@ -381,7 +410,7 @@ func (e *env) sourceTest(args []string) int {
 // ---- job -----------------------------------------------------------------
 
 func (e *env) cmdJob(args []string) int {
-	if len(args) == 0 {
+	if len(args) == 0 || isHelp(args[0]) {
 		fmt.Fprintln(e.out, "usage: ozddns job <list|show|add|run|enable|disable|rm>")
 		return 0
 	}
@@ -597,7 +626,7 @@ func (e *env) jobToggle(action string, args []string) int {
 // ---- run -----------------------------------------------------------------
 
 func (e *env) cmdRun(args []string) int {
-	if len(args) == 0 {
+	if len(args) == 0 || isHelp(args[0]) {
 		fmt.Fprintln(e.out, "usage: ozddns run <list|show>")
 		return 0
 	}
@@ -663,8 +692,67 @@ func (e *env) cmdRun(args []string) int {
 
 // ---- config --------------------------------------------------------------
 
+// ---- auth ----------------------------------------------------------------
+
+// cmdAuth inspects or disables the optional authorization mode. The panel has
+// no unauthenticated reset link; an operator with filesystem access to the
+// database can use this local break-glass command instead.
+func (e *env) cmdAuth(args []string) int {
+	if len(args) == 0 || isHelp(args[0]) {
+		fmt.Fprintln(e.out, "usage: ozddns auth <status|disable>")
+		return 0
+	}
+	switch args[0] {
+	case "status", "show":
+		return e.withApp(func(ctx context.Context, a *app.App) int {
+			state, err := a.AuthState(ctx)
+			if err != nil {
+				return e.fail(err)
+			}
+			if e.json {
+				e.printJSON(state)
+				return 0
+			}
+			fmt.Fprintf(e.out, "authorization : %s\n", boolWord(state.Enabled, "enabled", "off"))
+			if state.Enabled {
+				fmt.Fprintf(e.out, "username      : %s\n", orDash(state.Username))
+				fmt.Fprintf(e.out, "sessions      : %d\n", state.Sessions)
+				fmt.Fprintf(e.out, "recovery codes: %d remaining\n", state.RecoveryCodesRemaining)
+			} else {
+				fmt.Fprintf(e.out, "listen        : %s\n", orDash(state.Listen))
+				if state.Exposed {
+					fmt.Fprintln(e.out, "note          : reachable beyond loopback while authorization is off")
+				} else {
+					fmt.Fprintln(e.out, "note          : open local mode; anything that can reach this process has full control")
+				}
+			}
+			return 0
+		})
+	case "disable", "off":
+		fs := flag.NewFlagSet("auth disable", flag.ContinueOnError)
+		fs.SetOutput(e.err)
+		yes := fs.Bool("yes", false, "confirm removing the account, sessions and TOTP secret")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+		if !*yes {
+			return e.fail(fmt.Errorf("auth disable removes the account and TOTP secret; re-run with --yes"))
+		}
+		return e.withApp(func(ctx context.Context, a *app.App) int {
+			if err := a.ResetAuth(ctx); err != nil {
+				return e.fail(err)
+			}
+			fmt.Fprintln(e.out, "authorization disabled — the panel is open again; the next enrollment needs a new TOTP secret")
+			return 0
+		})
+	default:
+		fmt.Fprintf(e.err, "unknown auth command %q\n", args[0])
+		return 2
+	}
+}
+
 func (e *env) cmdConfig(args []string) int {
-	if len(args) == 0 {
+	if len(args) == 0 || isHelp(args[0]) {
 		fmt.Fprintln(e.out, "usage: ozddns config <export|import>")
 		return 0
 	}

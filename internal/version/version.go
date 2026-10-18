@@ -3,7 +3,7 @@ package version
 
 // These are overridable at build time with -ldflags "-X ...".
 var (
-	Version = "v1.0.0"
+	Version = "dev"
 	Build   = "dev"
 	Commit  = "unknown"
 )

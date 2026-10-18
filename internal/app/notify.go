@@ -19,13 +19,7 @@ func (a *App) notify(ctx context.Context, run domain.Run, job domain.Job) {
 	if err != nil || len(settings.Notifications) == 0 {
 		return
 	}
-	kind := "success"
-	switch run.Status {
-	case domain.StatusFailed:
-		kind = "failure"
-	case domain.StatusSuccess:
-		kind = "change"
-	}
+	event := eventFor(run.Status)
 	title := fmt.Sprintf("OzDDNS · %s · %s", job.Name, run.Status)
 	body := run.Message
 	if body == "" {
@@ -35,7 +29,7 @@ func (a *App) notify(ctx context.Context, run domain.Run, job domain.Job) {
 		body = fmt.Sprintf("%s → %s (%s)", run.OldIP, run.NewIP, body)
 	}
 	for _, n := range settings.Notifications {
-		if !n.Enabled || !subscribes(n.On, kind) {
+		if !n.Enabled || !subscribes(n.On, event) {
 			continue
 		}
 		if err := deliver(ctx, n, title, body); err != nil {
@@ -44,18 +38,33 @@ func (a *App) notify(ctx context.Context, run domain.Run, job domain.Job) {
 	}
 }
 
-func subscribes(on []string, kind string) bool {
+// eventFor maps a run outcome to the event kind a channel subscribes to.
+//
+//	success (records written) -> "change"
+//	failed                    -> "failure"
+//	nochange / skipped        -> "success" (the run completed without incident)
+func eventFor(status domain.RunStatus) string {
+	switch status {
+	case domain.StatusFailed:
+		return "failure"
+	case domain.StatusSuccess:
+		return "change"
+	default:
+		return "success"
+	}
+}
+
+// subscribes reports whether a channel's `on` list covers an event. An empty
+// list is the safe default: failures only, so a misconfigured channel is quiet
+// rather than noisy.
+func subscribes(on []string, event string) bool {
 	if len(on) == 0 {
-		return kind == "failure"
+		return event == "failure"
 	}
 	for _, o := range on {
-		if o == kind || o == "all" {
+		if o == event || o == "all" {
 			return true
 		}
-	}
-	// "failure" subscribers also hear about "change"; "change" implies success.
-	if kind == "failure" && len(on) == 0 {
-		return true
 	}
 	return false
 }

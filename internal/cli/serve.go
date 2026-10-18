@@ -29,9 +29,16 @@ func (e *env) cmdServe(args []string) int {
 	demo := fs.Bool("demo", false, "seed the demo dataset on first run")
 	noScheduler := fs.Bool("no-scheduler", false, "start with scheduling paused")
 	logLevel := fs.String("log-level", "", "log level: debug | info | warn | error (default info)")
+	trustProxy := fs.Bool("trust-proxy", false, "trust X-Forwarded-Proto and X-Forwarded-For from a reverse proxy (overrides OZDDNS_TRUST_PROXY and config.yaml)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
+	trustProxySet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "trust-proxy" {
+			trustProxySet = true
+		}
+	})
 	// --config may also be given after the subcommand; re-resolve if so.
 	if *configPath != "" && *configPath != e.configPath {
 		e.configPath = *configPath
@@ -64,6 +71,11 @@ func (e *env) cmdServe(args []string) int {
 		level = slog.LevelError
 	}
 	logger := slog.New(slog.NewTextHandler(e.err, &slog.HandlerOptions{Level: level}))
+	trust, err := e.resolveTrustProxy(*trustProxy, trustProxySet)
+	if err != nil {
+		fmt.Fprintln(e.err, "error:", err)
+		return 2
+	}
 
 	// A missing config file is created with the documented defaults so a fresh
 	// install has something to edit. A read-only directory is not fatal.
@@ -98,15 +110,11 @@ func (e *env) cmdServe(args []string) int {
 	a.BasePath = base
 	a.BasePathSource = baseSource
 
-	if !*noScheduler {
-		a.Start(ctx)
-	} else {
-		a.SetRunning(false)
-		a.Start(ctx)
-	}
+	a.Start(ctx, *noScheduler)
 
 	srv := server.New(a, web.Handler(base), logger)
 	srv.BasePath = base
+	srv.TrustProxy = trust
 	httpSrv := &http.Server{
 		Addr:              addr,
 		Handler:           srv.Handler(),
@@ -114,8 +122,8 @@ func (e *env) cmdServe(args []string) int {
 	}
 
 	fmt.Fprintf(e.out, "OzDDNS %s — panel on http://%s%s/  (db: %s)\n", version.Version, addr, strings.TrimSuffix(base, "/"), e.dbPath)
-	if !strings.HasPrefix(addr, "127.") && !strings.HasPrefix(addr, "localhost") && !strings.HasPrefix(addr, "[::1]") {
-		logger.Warn("listening on a non-loopback address; make sure a password is set", "addr", addr)
+	if state, err := a.AuthState(ctx); err == nil && state.Exposed && !state.Enabled {
+		logger.Warn("listening beyond loopback while authorization is off; enable authorization in Settings > Security or bind to 127.0.0.1", "addr", addr)
 	}
 
 	errCh := make(chan error, 1)

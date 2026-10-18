@@ -2,8 +2,10 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,12 +89,14 @@ func TestJobAndStateCRUD(t *testing.T) {
 
 	// State upsert twice must not duplicate.
 	st := domain.JobState{JobID: j.ID, LastStatus: domain.StatusSuccess, LastRunAt: time.Now().UTC(),
-		NextRunAt: time.Now().UTC().Add(5 * time.Minute), CurrentIP: "203.0.113.9", DesiredIP: "203.0.113.42"}
+		NextRunAt: time.Now().UTC().Add(5 * time.Minute), CurrentIP: "203.0.113.9", DesiredIP: "203.0.113.42",
+		SourceFingerprint: "prov=p1;addr=v4=203.0.113.9"}
 	if err := db.States().Upsert(ctx, st); err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
 	st.LastStatus = domain.StatusNoChange
 	st.CurrentIP = "203.0.113.42"
+	st.SourceFingerprint = "prov=p1;addr=v4=203.0.113.42"
 	if err := db.States().Upsert(ctx, st); err != nil {
 		t.Fatalf("Upsert 2: %v", err)
 	}
@@ -103,6 +107,9 @@ func TestJobAndStateCRUD(t *testing.T) {
 	gotSt, _ := db.States().Get(ctx, j.ID)
 	if gotSt.LastStatus != domain.StatusNoChange || gotSt.CurrentIP != "203.0.113.42" {
 		t.Fatalf("state = %+v", gotSt)
+	}
+	if gotSt.SourceFingerprint != "prov=p1;addr=v4=203.0.113.42" {
+		t.Fatalf("fingerprint round-trip = %q", gotSt.SourceFingerprint)
 	}
 }
 
@@ -147,6 +154,56 @@ func TestJobDeleteRemovesStateAndRuns(t *testing.T) {
 	}
 	if len(runs) != 0 {
 		t.Fatalf("runs still present: %+v", runs)
+	}
+}
+
+func TestInsertWithStateCommitsRunAndSchedulingStateTogether(t *testing.T) {
+	ctx := context.Background()
+	db := open(t)
+	now := time.Now().UTC()
+	state := domain.JobState{
+		JobID: "j-atomic", LastStatus: domain.StatusSuccess, LastRunAt: now,
+		NextRunAt: now.Add(5 * time.Minute), CurrentIP: "203.0.113.9",
+	}
+	id, err := db.Runs().InsertWithState(ctx, domain.Run{
+		JobID: "j-atomic", StartedAt: now, FinishedAt: now,
+		Status: domain.StatusSuccess, Trigger: domain.TriggerSchedule,
+	}, state)
+	if err != nil {
+		t.Fatalf("InsertWithState: %v", err)
+	}
+	run, err := db.Runs().Get(ctx, id)
+	if err != nil || run.JobID != state.JobID {
+		t.Fatalf("run = %+v err=%v", run, err)
+	}
+	got, err := db.States().Get(ctx, state.JobID)
+	if err != nil || got.NextRunAt.UnixMilli() != state.NextRunAt.UnixMilli() || got.CurrentIP != state.CurrentIP {
+		t.Fatalf("state = %+v err=%v", got, err)
+	}
+}
+
+func TestConfigImportRollsBackOnMidWriteFailure(t *testing.T) {
+	ctx := context.Background()
+	db := open(t)
+	old := domain.Provider{ID: "old", Name: "old", Type: "custom", Config: map[string]any{"url": "http://old"}, Enabled: true}
+	if err := db.Providers().Create(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	// The duplicate primary key fails after the replace step has deleted the old
+	// row. The transaction must restore that row rather than leave a partial state.
+	err := db.Config().Import(ctx, []domain.Provider{
+		{ID: "new", Name: "new", Type: "custom", Config: map[string]any{"url": "http://new"}, Enabled: true},
+		{ID: "new", Name: "duplicate", Type: "custom", Config: map[string]any{"url": "http://dup"}, Enabled: true},
+	}, nil, nil, nil, true)
+	if err == nil {
+		t.Fatal("duplicate provider id should fail")
+	}
+	providers, err := db.Providers().List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(providers) != 1 || providers[0].ID != "old" {
+		t.Fatalf("failed replace import mutated configuration: %+v", providers)
 	}
 }
 
@@ -271,11 +328,243 @@ func TestSettingsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAuthStatePersistsAndCascades(t *testing.T) {
+	ctx := context.Background()
+	db := open(t)
+	user := domain.AuthUser{
+		Username: "admin", PasswordHash: "pbkdf2-sha256$1$c2FsdA$aGFzaA",
+		TOTPSecret: "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", TOTPLastStep: 100,
+		CreatedAt: time.Now().UTC(),
+	}
+	codes := []domain.RecoveryCode{
+		{ID: "rc1", CodeHash: "hash1"},
+		{ID: "rc2", CodeHash: "hash2"},
+	}
+	if err := db.Auth().CompleteSetup(ctx, user, codes); err != nil {
+		t.Fatalf("CompleteSetup: %v", err)
+	}
+	got, err := db.Auth().User(ctx)
+	if err != nil {
+		t.Fatalf("User: %v", err)
+	}
+	if got.Username != "admin" || got.TOTPLastStep != 100 || got.PasswordHash != user.PasswordHash {
+		t.Fatalf("user = %+v", got)
+	}
+
+	ok, err := db.Auth().UseTOTPStep(ctx, 101)
+	if err != nil || !ok {
+		t.Fatalf("UseTOTPStep(101) = %v, %v", ok, err)
+	}
+	ok, err = db.Auth().UseTOTPStep(ctx, 101)
+	if err != nil || ok {
+		t.Fatalf("replayed TOTP step = %v, %v", ok, err)
+	}
+
+	if err := db.Auth().InsertSession(ctx, domain.AuthSession{
+		TokenHash: "session", CreatedAt: time.Now().UTC(), LastSeenAt: time.Now().UTC(),
+		IdleExpiresAt: time.Now().Add(time.Hour), AbsoluteExpiresAt: time.Now().Add(2 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Auth().ClearAuth(ctx); err != nil {
+		t.Fatalf("ClearAuth: %v", err)
+	}
+	if _, err := db.Auth().User(ctx); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("user after clear: %v", err)
+	}
+	if count, _ := db.Auth().SessionCount(ctx); count != 0 {
+		t.Fatalf("sessions after clear = %d", count)
+	}
+	if codes, _ := db.Auth().ListRecoveryCodes(ctx); len(codes) != 0 {
+		t.Fatalf("recovery codes after clear = %d", len(codes))
+	}
+}
+
+func TestAuthEventRetentionKeepsNewestRows(t *testing.T) {
+	ctx := context.Background()
+	db := open(t)
+	if _, err := db.db.ExecContext(ctx,
+		`WITH RECURSIVE seq(n) AS (
+			SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n < ?
+		)
+		INSERT INTO auth_events (at,event,username,detail,ip,user_agent)
+		SELECT ?, 'login_failed', 'admin', printf('attempt-%d', n), '127.0.0.1', 'test'
+		FROM seq`,
+		authEventRetention+1, time.Now().UTC().UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Auth().AddEvent(ctx, domain.AuthEvent{
+		At: time.Now().UTC(), Event: "login_succeeded", Username: "admin", IP: "127.0.0.1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var count int
+	if err := db.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM auth_events`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != authEventRetention {
+		t.Fatalf("retained events = %d, want %d", count, authEventRetention)
+	}
+	events, err := db.Auth().ListEvents(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Event != "login_succeeded" {
+		t.Fatalf("newest event = %+v", events)
+	}
+}
+
+func TestLegacyPasswordColumnIsRemoved(t *testing.T) {
+	ctx := context.Background()
+	db := open(t)
+	rows, err := db.db.QueryContext(ctx, `PRAGMA table_info(settings)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			cid, notNull, pk int
+			name, typ        string
+			defaultValue     sql.NullString
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			t.Fatal(err)
+		}
+		if name == "password_hash" {
+			t.Fatal("legacy settings.password_hash column still exists")
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	settings, err := db.Settings().Get(ctx)
+	if err != nil {
+		t.Fatalf("Get settings: %v", err)
+	}
+	if err := db.Settings().Save(ctx, settings); err != nil {
+		t.Fatalf("Save settings: %v", err)
+	}
+	var raw string
+	if err := db.db.QueryRowContext(ctx, `SELECT json FROM settings WHERE id=1`).Scan(&raw); err != nil {
+		t.Fatalf("read settings JSON: %v", err)
+	}
+	if strings.Contains(raw, "passwordHash") || strings.Contains(raw, "passwordSet") {
+		t.Fatalf("authentication material leaked into settings JSON: %s", raw)
+	}
+}
+
+func TestLegacySettingsPasswordColumnMigration(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.ExecContext(ctx, `CREATE TABLE settings (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		json TEXT NOT NULL,
+		password_hash TEXT NOT NULL
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.ExecContext(ctx, `CREATE TABLE ip_sources (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		type TEXT NOT NULL,
+		family TEXT NOT NULL,
+		target TEXT NOT NULL,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.ExecContext(ctx,
+		`INSERT INTO settings (id,json,password_hash) VALUES (1,?,?)`,
+		`{"language":"zh-CN","theme":"dark"}`, "legacy-hash"); err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open legacy database: %v", err)
+	}
+	defer db.Close()
+	rows, err := db.db.QueryContext(ctx, `PRAGMA table_info(settings)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for rows.Next() {
+		var (
+			cid, notNull, pk int
+			name, typ        string
+			defaultValue     sql.NullString
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			rows.Close()
+			t.Fatal(err)
+		}
+		if name == "password_hash" {
+			found = true
+		}
+	}
+	rows.Close()
+	if found {
+		t.Fatal("legacy settings.password_hash column survived migration")
+	}
+	settings, err := db.Settings().Get(ctx)
+	if err != nil {
+		t.Fatalf("Get after migration: %v", err)
+	}
+	if settings.Language != "zh-CN" || settings.Theme != "dark" {
+		t.Fatalf("legacy settings were not preserved: %+v", settings)
+	}
+	if err := db.Settings().Save(ctx, settings); err != nil {
+		t.Fatalf("Save after dropping legacy column: %v", err)
+	}
+
+	rows, err = db.db.QueryContext(ctx, `PRAGMA table_info(ip_sources)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ipSourceEnabled := false
+	for rows.Next() {
+		var (
+			cid, notNull, pk int
+			name, typ        string
+			defaultValue     sql.NullString
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			rows.Close()
+			t.Fatal(err)
+		}
+		if name == "enabled" {
+			ipSourceEnabled = true
+		}
+	}
+	rows.Close()
+	if ipSourceEnabled {
+		t.Fatal("legacy ip_sources.enabled column survived migration")
+	}
+	if err := db.IPSources().Create(ctx, domain.IPSource{
+		ID: "src-after-migration", Name: "static", Type: domain.IPStatic, Family: "v4", Target: "203.0.113.9",
+	}); err != nil {
+		t.Fatalf("Create IP source after migration: %v", err)
+	}
+}
+
 func TestIPSourceCRUD(t *testing.T) {
 	ctx := context.Background()
 	db := open(t)
 	s := domain.IPSource{ID: ids.New("src"), Name: "ipify", Type: domain.IPHTTP, Family: "v4",
-		Target: "https://api.ipify.org", Enabled: true}
+		Target: "https://api.ipify.org"}
 	if err := db.IPSources().Create(ctx, s); err != nil {
 		t.Fatalf("Create: %v", err)
 	}

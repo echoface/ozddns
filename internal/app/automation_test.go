@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 
@@ -15,11 +14,7 @@ import (
 // and is persisted.
 func TestPatchSettingsAppliesSchedulerConfig(t *testing.T) {
 	ctx := context.Background()
-	a, closer, err := Open(ctx, Options{DBPath: filepath.Join(t.TempDir(), "o.db")})
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	defer closer()
+	a := openApp(t)
 
 	tick, workers, paused, runOnStart := 30, 2, true, false
 	if _, err := a.PatchSettings(ctx, SettingsInput{
@@ -52,11 +47,7 @@ func TestPatchSettingsAppliesSchedulerConfig(t *testing.T) {
 // CFG-03: "Run all" reconciles every enabled job and reports a summary.
 func TestRunAllEnabled(t *testing.T) {
 	ctx := context.Background()
-	a, closer, err := Open(ctx, Options{DBPath: filepath.Join(t.TempDir(), "o.db")})
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	defer closer()
+	a := openApp(t)
 
 	var hits int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -5,6 +5,7 @@ import Icon from "./Icon.vue";
 import { Toggle } from "./UiKit";
 import { fmtDateTime, fmtUptime, isDark, localeVersion, t, toggleTheme } from "../lib";
 import {
+  authState,
   data,
   getJob,
   getProvider,
@@ -13,6 +14,7 @@ import {
   navOpen,
   saveThemePreference,
   schedulerRunning,
+  signOut,
   toggleScheduler
 } from "../store";
 
@@ -188,13 +190,14 @@ watch(() => route.fullPath, async () => {
           </div>
         </div>
         <RouterLink class="who" to="/settings/about">
-          <span class="avatar">AD</span>
+          <span class="avatar">{{ authState.enabled ? (authState.username || "AD").slice(0, 2).toUpperCase() : "LO" }}</span>
           <span class="grow">
-            <span class="strong" style="font-size:13px">{{ t("Administrator") }}</span><br>
-            <span class="tiny muted">{{ data.runtime.version }}</span>
+            <span class="strong" style="font-size:13px">{{ t(authState.enabled ? "Administrator" : "Local open mode") }}</span><br>
+            <span class="tiny muted">{{ authState.enabled ? authState.username : data.runtime.version }}</span>
           </span>
           <Icon name="chevron-right" class="muted" />
         </RouterLink>
+        <button v-if="authState.enabled" class="btn sm block mt8" type="button" @click="signOut"><Icon name="log-out" />{{ t("Sign out") }}</button>
       </div>
     </aside>
 

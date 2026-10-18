@@ -46,9 +46,62 @@ watch(modal, (value) => {
     }
   }
   if (value?.type === "provider-wizard") value.step ||= 0;
+  if (value?.type === "notify") {
+    // Seed the selects so they open on the value that will actually be saved
+    // instead of an empty box that silently means "webhook / on failure".
+    form.kind = "webhook";
+    form.on = "failure";
+  }
 }, { deep: false });
 
+// The provider wizard builds its form one field at a time, so seed each field's
+// designed default (method, body template, TTL, region, ...) as soon as the
+// provider type is picked — otherwise the panel shows blank inputs and would
+// store a config the operator never saw.
+watch(() => modal.value?.typeId, (typeId) => {
+  if (!typeId) return;
+  const type = getProviderType(typeId);
+  (type?.fields || []).forEach((field: any) => {
+    form[`provider_${field.key}`] = field.default ?? "";
+  });
+});
+
 const runJobInfo = computed(() => modal.value?.type === "run" ? getJob(modal.value.run.jobId) : undefined);
+const runProviderType = computed(() => {
+  const job = runJobInfo.value;
+  const provider = job ? data.providers.find((item) => item.id === job.providerId) : undefined;
+  return provider ? getProviderType(provider.type) : undefined;
+});
+// The run sheet explains what the engine actually did. Write-only providers
+// have no read step, and a skipped run never touched the provider at all, so
+// the steps are derived from the recorded run rather than assumed.
+const runSteps = computed<[string, string, string][]>(() => {
+  const run = modal.value?.type === "run" ? modal.value.run : null;
+  if (!run) return [];
+  const steps: [string, string, string][] = [
+    [t("Read IP source"), run.newIp ? t("resolved {ip}", { ip: run.newIp }) : t("no address available"), "info"]
+  ];
+  const writeOnly = !!runProviderType.value?.writeOnly;
+  const actions = (run.details || []).map((detail: any) => detail.action);
+  const lastKind = run.status === "failed" ? "err" : run.status === "success" ? "ok" : "info";
+  if (!run.details?.length) {
+    steps.push([t(run.status === "skipped" ? "Skipped" : "Reconcile"), run.message || t("done"), lastKind]);
+    return steps;
+  }
+  steps.push(writeOnly
+    ? [t("Write to provider"), t("write-only provider — the address is sent, but it cannot be read back"), lastKind]
+    : [t("Fetch current record"), run.oldIp ? t("found {ip}", { ip: run.oldIp }) : t("no existing record"), "info"]);
+  if (!writeOnly) {
+    steps.push([t("Compute diff"), run.oldIp === run.newIp ? t("in sync — no write") : t("drift detected"), "info"]);
+  }
+  steps.push([
+    t(actions.includes("failed") ? "Write rejected" : run.status === "success" ? "Write applied" : "Reconcile"),
+    run.message || t("done"),
+    lastKind
+  ]);
+  return steps;
+});
+
 const sourceUsers = computed(() => modal.value?.source
   ? data.jobs.filter((job) => job.ipSourceId === modal.value?.source?.id).length
   : 0);
@@ -90,6 +143,7 @@ function runActionKind(action: string): string {
   switch (action) {
     case "created":
     case "updated":
+    case "applied":
       return "ok";
     case "failed":
       return "err";
@@ -120,8 +174,7 @@ async function saveSource(): Promise<void> {
         name: form.name,
         type: form.sourceType,
         family: form.family,
-        target: form.target,
-        enabled: true
+        target: form.target
       });
     } else if (state?.source) {
       const updated = await api.patch(`/ip-sources/${state.source.id}`, {
@@ -192,7 +245,10 @@ async function addProvider(): Promise<void> {
       await api.post("/providers", { name: form.providerName || type.label, type: type.id, config });
       await refresh(true);
     }
-    notify("ok", t("Provider added"), t("{label} validated and ready.", { label: type.label }));
+    notify("ok", t("Provider added"),
+      t(type.writeOnly
+        ? "{label} has no read API, so there is nothing to validate — it is exercised on the first run."
+        : "{label} validated and ready.", { label: type.label }));
     close();
   } catch (error) { fail(error, t("Could not add provider")); }
 }
@@ -272,19 +328,10 @@ async function rerun(): Promise<void> {
           </div>
           <div class="strong mb8">{{ t("Steps") }}</div>
           <div class="timeline mb16">
-            <div
-              v-for="(step, index) in [
-                [t('Read IP source'), modal.run.newIp ? `resolved ${modal.run.newIp}` : t('no address available')],
-                [t('Fetch current record'), modal.run.oldIp ? `found ${modal.run.oldIp}` : t('no existing record')],
-                [t('Compute diff'), modal.run.oldIp === modal.run.newIp ? t('in sync — no write') : t('drift detected')],
-                [t(modal.run.status === 'failed' ? 'Write rejected' : modal.run.status === 'success' ? 'Write applied' : 'Reconcile'), modal.run.message || t('done')]
-              ]"
-              :key="index"
-              class="tl-item"
-            >
+            <div v-for="(step, index) in runSteps" :key="index" class="tl-item">
               <div class="tl-rail">
-                <span class="tl-node" :class="index === 3 ? (modal.run.status === 'failed' ? 'err' : modal.run.status === 'success' ? 'ok' : 'info') : 'info'" />
-                <span v-if="index < 3" class="tl-line" />
+                <span class="tl-node" :class="step[2]" />
+                <span v-if="index < runSteps.length - 1" class="tl-line" />
               </div>
               <div class="tl-body">
                 <div class="tl-text"><b>{{ step[0] }}</b></div>
@@ -371,7 +418,7 @@ async function rerun(): Promise<void> {
         </div>
         <div class="sheet-foot">
           <button class="btn" @click="modal.step = 0"><Icon name="arrow-left" />{{ t("Back") }}</button>
-          <button class="btn primary" @click="addProvider"><Icon name="check" />{{ t("Add & validate") }}</button>
+          <button class="btn primary" @click="addProvider"><Icon name="check" />{{ t(getProviderType(modal.typeId)?.writeOnly ? "Add provider" : "Add & validate") }}</button>
         </div>
       </div>
 

@@ -1,7 +1,7 @@
 # OzDDNS — build, test and packaging tasks.
 BINARY  := ozddns
 PKG     := github.com/echoface/ozddns
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo v1.0.0)
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD   ?= $(shell date -u +%Y.%m.%d)
 GOFLAGS ?=

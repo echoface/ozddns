@@ -24,7 +24,7 @@ type Factory struct{}
 func (Factory) Meta() provider.Meta {
 	return provider.Meta{
 		Type: Type, Label: "DuckDNS", Color: "duckdns", Tag: "duckdns",
-		Desc: "Token + subdomain, free dynamic DNS",
+		Desc: "Token + subdomain, free dynamic DNS", WriteOnly: true,
 		Fields: []provider.Field{
 			{Key: "token", Label: "Token", Type: provider.FieldSecret, Secret: true, Required: true},
 			{Key: "subdomain", Label: "Subdomain", Type: provider.FieldText, Required: true, Help: "The name before .duckdns.org"},
@@ -54,7 +54,7 @@ func (p *Provider) ListZones(ctx context.Context) ([]domain.Zone, error) {
 }
 
 func (p *Provider) ListRecords(ctx context.Context, name string, f domain.RecordFilter) ([]domain.Record, error) {
-	return nil, nil
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (p *Provider) Apply(ctx context.Context, ch domain.Change) error {

@@ -70,12 +70,61 @@ Both display and body fall back to OS serif/sans so the panel renders acceptably
 OzDDNS
 ├── Overview        control room: live IP, health, task list, activity
 ├── Providers       provider instances (accounts) + detail (config / zones / usage)
-├── Sync tasks      list + detail (reconciliation diff, history) + create wizard
+├── Sync tasks      list + detail (reconciliation diff, history) + create/edit form
 ├── Executions      rolling-window run log (retention-pruned), filters, run inspector
 └── Settings        General · Scheduler · Security · IP sources · Notifications · Storage · About
 ```
 
 Plus a full-screen **Sign in** view, and system-level **modals / drawers / toasts**.
+
+### Access modes and authorization
+
+The daemon has one deliberate default: bind to `127.0.0.1:9876` and run in open
+mode. A local-only deployment therefore needs no account, login screen, token,
+or configuration before it is useful.
+
+Here, "daemon" means the single long-running `ozddns serve` process. It owns the
+HTTP server, scheduler, reconciler, and execution-history retention loop. There
+is no separate OzDDNS supervisor process; systemd, Docker, or another service
+manager may supervise it.
+
+Authorization is an explicit opt-in in **Settings → Security**. Enabling it
+creates a single administrator through a password → TOTP enrollment flow, then
+returns ten one-time recovery codes exactly once. Sign-in uses the password to
+obtain a five-minute challenge, verifies TOTP or a recovery code, and finally
+sets an opaque server-side session cookie. The cookie is `HttpOnly` and
+`SameSite=Lax`; the database stores only its SHA-256 hash.
+
+Sessions slide on a 30-minute idle timeout but are capped at 12 hours absolute.
+TOTP time steps and recovery codes are single-use. Turning authorization off
+requires both factors and atomically deletes the administrator, sessions,
+pending challenge, TOTP secret, and recovery codes. Re-enabling always performs
+a fresh enrollment with a different TOTP secret. Local filesystem access to the
+database is the break-glass path: `ozddns auth disable --yes`.
+
+Authorization protects the HTTP management surface only. The scheduler,
+reconciler, and notification delivery continue after the browser signs out.
+There is one administrator and no role or standalone API-token model; scripts
+calling protected endpoints must complete the login handshake and retain the
+session cookie.
+
+The HTTP adapter also applies a hard request-body limit (64 KiB for auth
+endpoints and 8 MiB for the rest of `/api/v1`), `no-store` on authorized API
+responses, and browser hardening headers that deny framing and plugin content.
+Oversized requests fail with `413` before JSON decoding, including chunked
+requests without a `Content-Length`.
+
+Enrollment endpoints are loopback-only. This closes the otherwise obvious
+takeover path where an operator exposes an open instance before creating the
+administrator and a remote client enrolls first.
+
+If an open instance is bound beyond loopback, the CLI warns at startup and the
+panel shows a global banner. Session cookies become `Secure` when the request
+is TLS or when `--trust-proxy` trusts an HTTPS forwarded scheme. The same flag
+also makes client classification use `X-Forwarded-For` for rate limiting and
+loopback-only enrollment. Enable it only when every request arrives through a
+trusted proxy that overwrites both forwarding headers; trusting them on a
+directly reachable listener permits source-address spoofing.
 
 ## 4. Screen inventory
 
@@ -131,6 +180,11 @@ what a dynamic-DNS task actually needs (ddns-go is the reference here):
    duplicated. The reused card shows family, target, a **Test** button and how many
    tasks already use it.
 
+The server enforces the same invariant for every client: a task's targets must all
+match its IP source family. The UI already derives the record type, but API, CLI
+and configuration-import callers are validated too, so malformed input cannot
+write an IPv4 value into an `AAAA` record or the reverse.
+
 The same form doubles as the editor: `#/jobs/{id}/edit` opens it pre-filled from
 the stored task (button: **Save changes**), so a task never has two places to be
 changed from. Stored sources are editable too, and because a source can feed
@@ -146,8 +200,8 @@ Everything else (interval, write mode, run-on-start, jitter) hides behind
 **Add a provider** → *Add provider* → choose type (grid of compiled-in providers) →
 enter credentials → *Add & validate* → provider validated, appears as a card.
 
-**Create a task** → *New task* → wizard (5 steps above) → task appears in the list → runs
-on the next tick (or *Run now*).
+**Create a task** → *New task* → one-page form (the four decisions above) →
+task appears in the list → runs on the next tick (or *Run now*).
 
 **Resolve a failure** → Overview banner *"1 task needs attention"* → open task → see
 `last run failed` banner → open the execution → read the provider exchange (e.g. `401`) →
@@ -170,10 +224,26 @@ steps, and the provider request/response.
 
 ## 7. Backend contract (what the UI expects)
 
-REST, JSON, mounted under `/api/v1`. The prototype's mock data already matches these
-shapes 1:1.
+REST, JSON, mounted under `/api/v1`. `GET /healthz` is a separate public
+liveness probe outside that prefix. The public authentication surface is
+`/auth/state`, the setup handshake, login, MFA, and logout; every other API
+route requires a session when authorization is enabled.
 
 ```
+GET    /healthz                   -> liveness (public, outside /api/v1)
+
+GET    /auth/state                -> AuthState              # public mode state
+POST   /auth/setup/start          -> TOTP enrollment material
+POST   /auth/setup/verify         -> {recoveryCodes,user}
+POST   /auth/setup/cancel
+POST   /auth/login                -> {mfaRequired,challenge}
+POST   /auth/mfa                  -> {ok,user} + session cookie
+POST   /auth/logout
+GET    /auth/me                   -> {username}
+POST   /auth/disable
+POST   /auth/recovery-codes
+GET    /auth/events               -> AuthEvent[]
+
 GET    /providers                 -> Provider[]
 POST   /providers                 {type,name,config}      -> Provider
 GET    /providers/{id}            -> Provider
@@ -184,7 +254,12 @@ GET    /providers/{id}/zones      -> Zone[]
 GET    /provider-types            -> ProviderMeta[]        # registry reflection
 
 GET    /ip-sources                -> IPSource[]
-POST   /ip-sources  PATCH /ip-sources/{id}  DELETE /ip-sources/{id}
+POST   /ip-sources                 -> IPSource
+PATCH  /ip-sources/{id}            -> IPSource
+DELETE /ip-sources/{id}
+POST   /ip-sources/{id}/test       -> {ok,address,error?}
+GET    /ip-sources/interfaces      -> Interface[]
+GET    /ip-source-types            -> SourceMeta[]
 
 GET    /jobs                      -> Job[]
 POST   /jobs                      -> Job
@@ -192,38 +267,64 @@ GET    /jobs/{id}                 -> Job
 PATCH  /jobs/{id}                 -> Job
 DELETE /jobs/{id}
 POST   /jobs/{id}/run             -> Run                   # run now
-POST   /jobs/{id}/dry-run         -> {diff}                # no writes
+POST   /jobs/{id}/dry-run         -> {targets[]}           # no writes
+POST   /jobs/run-all              -> {results,failed}
 
-GET    /runs?job=&status=&since=  -> Run[]
+GET    /runs?job=&status=&limit=  -> Run[]
 GET    /runs/{id}                 -> Run
+POST   /runs/purge                -> {ok,deleted,keptDays}
 
-GET    /ip                        -> {v4,v6,checkedAt,source}
+GET    /ip                        -> {v4:{address,source,tasks,status},v6:{...},checkedAt}
 GET    /status                    -> RuntimeStatus
 GET    /settings   PATCH /settings
 POST   /settings/test-notify
+POST   /scheduler                 -> {running}
 GET    /config/export
 POST   /config/import
 ```
 
-### Domain model (mirrors `web/v2/src/compat/data.js`)
+### Design decisions and deliberate boundaries
+
+| Decision | Rationale and consequence |
+|---|---|
+| Server-side opaque sessions instead of JWT | Authorization can be revoked immediately by deleting one session or all sessions; no bearer credential or signing key is exposed to browser JavaScript. The cookie is `HttpOnly`, `SameSite=Lax`, and `Secure` on HTTPS. |
+| Open mode by default, loopback bind by default | A local single-user install is useful without security setup to complete. Open mode is not a supported exposure model; the CLI warns and the panel banners an open listener that is reachable beyond loopback. |
+| Authorization is opt-in and protects HTTP only | DNS scheduling is the product's core job and must not stop merely because an operator is signed out. Authorization gates management mutations and reads, not the background engine. |
+| First enrollment is loopback-only | An exposed but unenrolled instance must not be claimable by the first remote visitor. A trusted reverse proxy can preserve the real client address only when `trustProxy` is enabled and the proxy overwrites forwarded headers. |
+| One administrator, no roles or API tokens | This keeps the current security model explicit and auditable. Multi-user tenancy, delegated permissions, and machine tokens require a separate design rather than an ad-hoc extension. |
+| Disable deletes all authorization state | No dormant password, TOTP secret, recovery code, challenge, or session survives a transition back to open mode. Re-enabling is a new enrollment. |
+| Overview IP reflects active task sources | The panel never picks the first configured source and never probes a built-in public endpoint. It follows sources referenced by enabled tasks, prefers the most recently successful task, and falls through to another active source when one is stale or unavailable. |
+| Replace import is serialized with runs and edits | The transaction makes the database replacement atomic, while an application-level read/write lock prevents an in-flight run from persisting history for a task the import just deleted. Imported scheduler settings are applied before the import releases that lock. |
+| SQLite and in-process coordination | The deployment target is a single process. The login limiter is an in-memory, per-source-IP token bucket with a hard 8192-entry cap and expired/old-entry eviction. A bitmap cannot represent per-IP counters or time windows; a multi-instance deployment would need a shared limiter and a different session architecture. |
+| Bounded HTTP and audit inputs | Auth payloads are capped at 64 KiB and other API payloads at 8 MiB so unauthenticated JSON parsing cannot grow without bound. Security audit rows retain the newest 10,000 entries; failed sign-ins are still recorded, but rotating source addresses cannot grow the database indefinitely. |
+| TLS terminates at a trusted proxy | OzDDNS does not carry certificates. `trustProxy` is a narrow trust decision, not a generic way to make an HTTP listener public. |
+| IP sources have no enabled flag | A source is a reusable read strategy, while the task's `enabled` flag decides whether automatic reconciliation runs. Keeping both controls made the panel hide a source while existing tasks still used it, so the redundant state was removed instead of adding a second execution rule. |
+
+### Domain model (mirrors `web/v2/src/types.ts`)
 
 ```ts
 type Provider = {
   id, name, type, enabled: boolean,
-  status: 'ok'|'warn'|'err', statusText: string,
+  status: 'ok'|'warn'|'err'|'mute', statusText: string,
   zones: string[], records: number,
   config: Record<string, unknown>,   // secrets masked on read
   lastValidated: number, createdAt: number
 }
-type IPSource = { id, name, type:'http'|'interface'|'command'|'static', family:'v4'|'v6', target, enabled }
-type Target  = { domain, type:'A'|'AAAA'|'CNAME', ttl, proxied?, comment? }
+type IPSource = { id, name, type:'http'|'interface'|'command'|'static', family:'v4'|'v6', target }
+type Target  = { domain, type:'A'|'AAAA', ttl, proxied?, comment? }
 type Job = {
   id, name, providerId, ipSourceId, targets: Target[],
   intervalMinutes, runOnChangeOnly, jitter, enabled,
-  lastRun, lastStatus:'success'|'nochange'|'failed'|'skipped', nextRun,
+  lastRun, lastStatus:'success'|'nochange'|'failed'|'skipped'|'', nextRun,
   current, desired, error?, lastChanged
 }
-type Run = { id, jobId, startedAt, durationMs, status, oldIp?, newIp?, trigger:'schedule'|'manual', message?, records? }
+type Run = {
+  id, jobId, startedAt, durationMs,
+  status:'success'|'nochange'|'failed'|'skipped', oldIp?, newIp?,
+  trigger:'schedule'|'manual', message?, records?,
+  details: { domain, type, action:'created'|'updated'|'unchanged'|'skipped'|'failed',
+             current?, desired?, proxied?, note? }[]
+}
 ```
 
 ## 8. Accessibility & responsiveness

@@ -66,7 +66,13 @@ func (s *httpSource) Get(ctx context.Context, family string) (netip.Addr, error)
 		return netip.Addr{}, err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return netip.Addr{}, fmt.Errorf("HTTP source returned status %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("read HTTP source response: %w", err)
+	}
 	return extractIP(string(body), family)
 }
 
@@ -295,7 +301,15 @@ func (staticFactory) New(target string) (Source, error) {
 type staticSource struct{ value string }
 
 func (s *staticSource) Get(ctx context.Context, family string) (netip.Addr, error) {
-	return netip.ParseAddr(s.value)
+	addr, err := netip.ParseAddr(s.value)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	addr = addr.Unmap()
+	if (family == "v6" && !addr.Is6()) || (family == "v4" && !addr.Is4()) {
+		return netip.Addr{}, fmt.Errorf("static source contains %s, not a %s address", addr, family)
+	}
+	return addr, nil
 }
 
 // registerBuiltins wires the four built-in source kinds into a registry.

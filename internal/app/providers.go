@@ -37,6 +37,9 @@ type ProviderInput struct {
 
 // ListProviders returns all providers as masked views.
 func (a *App) ListProviders(ctx context.Context) ([]ProviderView, error) {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
 	providers, err := a.Store.Providers().List(ctx)
 	if err != nil {
 		return nil, err
@@ -51,6 +54,9 @@ func (a *App) ListProviders(ctx context.Context) ([]ProviderView, error) {
 
 // GetProvider returns one provider view.
 func (a *App) GetProvider(ctx context.Context, id string) (ProviderView, error) {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
 	p, err := a.Store.Providers().Get(ctx, id)
 	if err != nil {
 		return ProviderView{}, err
@@ -61,6 +67,9 @@ func (a *App) GetProvider(ctx context.Context, id string) (ProviderView, error) 
 
 // CreateProvider validates config, stores the provider and attempts a live check.
 func (a *App) CreateProvider(ctx context.Context, in ProviderInput) (ProviderView, error) {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
 	f, err := a.Providers.MustGet(in.Type)
 	if err != nil {
 		return ProviderView{}, err
@@ -91,6 +100,9 @@ func (a *App) CreateProvider(ctx context.Context, in ProviderInput) (ProviderVie
 
 // UpdateProvider updates fields and re-runs validation.
 func (a *App) UpdateProvider(ctx context.Context, id string, in ProviderInput) (ProviderView, error) {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
 	p, err := a.Store.Providers().Get(ctx, id)
 	if err != nil {
 		return ProviderView{}, err
@@ -123,6 +135,9 @@ func (a *App) UpdateProvider(ctx context.Context, id string, in ProviderInput) (
 
 // DeleteProvider removes a provider. It refuses when jobs still reference it.
 func (a *App) DeleteProvider(ctx context.Context, id string) error {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
 	jobs, _ := a.Store.Jobs().List(ctx)
 	inUse := 0
 	for _, j := range jobs {
@@ -138,6 +153,9 @@ func (a *App) DeleteProvider(ctx context.Context, id string) error {
 
 // ValidateProvider performs a live validation and caches the result.
 func (a *App) ValidateProvider(ctx context.Context, id string) (ProviderView, error) {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
 	p, err := a.Store.Providers().Get(ctx, id)
 	if err != nil {
 		return ProviderView{}, err
@@ -154,6 +172,9 @@ func (a *App) ValidateProvider(ctx context.Context, id string) (ProviderView, er
 
 // Zones lists a provider's zones (live).
 func (a *App) Zones(ctx context.Context, id string) ([]domain.Zone, error) {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
 	p, err := a.Store.Providers().Get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -171,9 +192,19 @@ func (a *App) validateAndCache(ctx context.Context, p domain.Provider) ([]domain
 		a.setHealth(p.ID, providerHealth{status: "err", statusText: err.Error(), validatedAt: time.Now().UTC()})
 		return nil, err
 	}
-	if err := adapter.Validate(ctx); err != nil {
-		a.setHealth(p.ID, providerHealth{status: "err", statusText: err.Error(), validatedAt: time.Now().UTC()})
-		return nil, err
+	// A write-only provider (DuckDNS, Namecheap DDNS, custom webhooks) exposes
+	// no read API, so there is nothing to verify against. Claiming "validated
+	// successfully" would be a lie the operator only discovers on the first
+	// failing run; report what is actually true instead.
+	writeOnly := false
+	if f, ok := a.Providers.Get(p.Type); ok {
+		writeOnly = f.Meta().WriteOnly
+	}
+	if !writeOnly {
+		if err := adapter.Validate(ctx); err != nil {
+			a.setHealth(p.ID, providerHealth{status: "err", statusText: err.Error(), validatedAt: time.Now().UTC()})
+			return nil, err
+		}
 	}
 	zones, err := adapter.ListZones(ctx)
 	names := make([]string, 0, len(zones))
@@ -183,6 +214,15 @@ func (a *App) validateAndCache(ctx context.Context, p domain.Provider) ([]domain
 	if err != nil {
 		a.setHealth(p.ID, providerHealth{status: "warn", statusText: "validated, but zones could not be listed", validatedAt: time.Now().UTC()})
 		return nil, nil
+	}
+	if writeOnly {
+		a.setHealth(p.ID, providerHealth{
+			status:      "ok",
+			statusText:  "write-only provider — no read API, exercised on the next run",
+			zones:       names,
+			validatedAt: time.Now().UTC(),
+		})
+		return zones, nil
 	}
 	a.setHealth(p.ID, providerHealth{status: "ok", statusText: "validated successfully", zones: names, validatedAt: time.Now().UTC()})
 	return zones, nil

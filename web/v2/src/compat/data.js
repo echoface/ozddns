@@ -11,8 +11,8 @@
   /* ---- Provider type catalog (the "registry" contract) ---- */
   var providerTypes = [
     { id: 'cloudflare', label: 'Cloudflare', color: 'cloudflare', tag: 'cloudflare',
-      desc: 'API Token, zones & proxied records (A / AAAA / CNAME)',
-      supportsProxied: true, fields: [
+      desc: 'API Token, zones & proxied records (A / AAAA)',
+      supportsProxied: true, writeOnly: false, fields: [
         { key: 'api_token', label: 'API Token', type: 'secret', required: true, help: 'Zone.DNS Edit permission for the target zone.' },
         { key: 'zone_id', label: 'Zone ID (optional)', type: 'text', help: 'Leave blank to auto-discover from the domain.' },
         { key: 'proxied', label: 'Proxy traffic (orange cloud)', type: 'bool', default: false },
@@ -80,10 +80,10 @@
 
   /* ---- IP sources ---- */
   var ipSources = [
-    { id: 'src-ipify-v4', name: 'ipify (IPv4)', type: 'http', family: 'v4', target: 'https://api.ipify.org', enabled: true },
-    { id: 'src-ifconfig-v6', name: 'ifconfig.co (IPv6)', type: 'http', family: 'v6', target: 'https://v6.ifconfig.co', enabled: true },
-    { id: 'src-en0', name: 'LAN interface · en0', type: 'interface', family: 'v4', target: 'en0', enabled: true },
-    { id: 'src-cmd-v6', name: 'Tailscale address', type: 'command', family: 'v6', target: 'tailscale ip -6', enabled: true }
+    { id: 'src-ipify-v4', name: 'ipify (IPv4)', type: 'http', family: 'v4', target: 'https://api.ipify.org' },
+    { id: 'src-ifconfig-v6', name: 'ifconfig.co (IPv6)', type: 'http', family: 'v6', target: 'https://v6.ifconfig.co' },
+    { id: 'src-en0', name: 'LAN interface · en0', type: 'interface', family: 'v4', target: 'en0' },
+    { id: 'src-cmd-v6', name: 'Tailscale address', type: 'command', family: 'v6', target: 'tailscale ip -6' }
   ];
 
   /* ---- Local NICs (offline sample; the live server enumerates real ones) ---- */
@@ -159,7 +159,7 @@
       lastRun: at(240), lastStatus: 'nochange', nextRun: null,
       current: '203.0.113.42', desired: '203.0.113.42', lastChanged: at(60 * 40) },
     { id: 'j-iot', name: 'IoT callback', providerId: 'p-hook', ipSourceId: 'src-en0',
-      targets: [{ domain: 'iot.homelab.net', type: 'CNAME', ttl: 300, comment: 'webhook target' }],
+      targets: [{ domain: 'iot.homelab.net', type: 'A', ttl: 300, comment: 'webhook target' }],
       intervalMinutes: 60, runOnChangeOnly: true, jitter: false, enabled: true,
       lastRun: at(35), lastStatus: 'success', nextRun: at(-25),
       current: '203.0.113.42', desired: '203.0.113.42', lastChanged: at(35) },
@@ -227,8 +227,15 @@
 
   /* ---- Public IP + runtime + settings ---- */
   var ipInfo = {
-    v4: '203.0.113.42', v4Source: 'ipify', v4Checked: at(1),
-    v6: '2001:db8:8a2e:370:7334::1', v6Source: 'ifconfig.co', v6Checked: at(1)
+    v4: {
+      address: '203.0.113.42', sourceId: 'src-v4-demo', source: 'ipify',
+      sourceTarget: 'https://api.ipify.org', tasks: 2, status: 'ok', error: '', checkedAt: at(1)
+    },
+    v6: {
+      address: '2001:db8:8a2e:370:7334::1', sourceId: 'src-v6-demo', source: 'ifconfig.co',
+      sourceTarget: 'https://v6.ifconfig.co', tasks: 1, status: 'ok', error: '', checkedAt: at(1)
+    },
+    checkedAt: at(1)
   };
   var runtime = { scheduler: 'running', uptimeSeconds: 3 * DAY / 1000 + 4 * HOUR / 1000 + 12 * 60,
     version: 'v0.9.0', build: '2026.10.09', dbPath: './data/ozddns.db', dbDriver: 'sqlite',
@@ -237,7 +244,6 @@
 
   var settings = {
     general: { language: 'en', theme: 'light', defaultInterval: 5, timezone: 'Asia/Shanghai' },
-    security: { username: 'admin', passwordSet: true, allowWan: false, tls: false, apiTokens: 1 },
     notify: { webhooks: [
       { id: 'n1', kind: 'slack', name: '#homelab alerts', target: 'https://hooks.slack.com/•••', enabled: true, on: ['failure'] },
       { id: 'n2', kind: 'webhook', name: 'Uptime Kuma', target: 'https://kuma.lan/api/push/•••', enabled: true, on: ['change', 'failure'] }

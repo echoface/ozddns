@@ -2,8 +2,6 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -17,10 +15,6 @@ type SettingsInput struct {
 	Theme                *string                `json:"theme"`
 	Timezone             *string                `json:"timezone"`
 	DefaultInterval      *int                   `json:"defaultInterval"`
-	Username             *string                `json:"username"`
-	Password             *string                `json:"password"`
-	AllowWAN             *bool                  `json:"allowWan"`
-	TLS                  *bool                  `json:"tls"`
 	SchedulerPaused      *bool                  `json:"schedulerPaused"`
 	SchedulerTickSeconds *int                   `json:"schedulerTickSeconds"`
 	SchedulerWorkers     *int                   `json:"schedulerWorkers"`
@@ -31,6 +25,9 @@ type SettingsInput struct {
 
 // PatchSettings merges a partial update into the stored settings.
 func (a *App) PatchSettings(ctx context.Context, in SettingsInput) (domain.Settings, error) {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
 	s, err := a.Store.Settings().Get(ctx)
 	if err != nil {
 		return domain.Settings{}, err
@@ -53,18 +50,6 @@ func (a *App) PatchSettings(ctx context.Context, in SettingsInput) (domain.Setti
 	if in.DefaultInterval != nil && *in.DefaultInterval > 0 {
 		s.DefaultInterval = *in.DefaultInterval
 	}
-	if in.Username != nil {
-		s.Username = *in.Username
-	}
-	if in.Password != nil && *in.Password != "" {
-		s.PasswordHash = hashPassword(*in.Password)
-	}
-	if in.AllowWAN != nil {
-		s.AllowWAN = *in.AllowWAN
-	}
-	if in.TLS != nil {
-		s.TLS = *in.TLS
-	}
 	if in.SchedulerPaused != nil {
 		s.SchedulerPaused = *in.SchedulerPaused
 	}
@@ -86,74 +71,29 @@ func (a *App) PatchSettings(ctx context.Context, in SettingsInput) (domain.Setti
 	if in.Notifications != nil {
 		s.Notifications = *in.Notifications
 	}
-	s.PasswordSet = s.PasswordHash != ""
 	if err := a.Store.Settings().Save(ctx, s); err != nil {
 		return domain.Settings{}, err
 	}
 	// Push the new tuning into the running scheduler right away.
 	a.Scheduler.Configure(time.Duration(s.SchedulerTickSeconds)*time.Second, s.SchedulerWorkers, s.RunOnStart)
 	a.Scheduler.SetRunning(!s.SchedulerPaused)
-	s.PasswordHash = ""
 	return s, nil
 }
 
-// GetSettings returns instance settings with the password hash removed.
+// GetSettings returns the persisted instance settings.
 func (a *App) GetSettings(ctx context.Context) (domain.Settings, error) {
-	s, err := a.Store.Settings().Get(ctx)
-	if err != nil {
-		return domain.Settings{}, err
-	}
-	s.PasswordHash = ""
-	return s, nil
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+	return a.Store.Settings().Get(ctx)
 }
 
-// SaveSettings persists instance settings (password only replaced when set).
+// SaveSettings persists instance settings.
 func (a *App) SaveSettings(ctx context.Context, s domain.Settings) (domain.Settings, error) {
-	existing, err := a.Store.Settings().Get(ctx)
-	if err != nil {
-		return domain.Settings{}, err
-	}
-	if s.PasswordHash == "" {
-		s.PasswordHash = existing.PasswordHash
-	}
-	s.PasswordSet = s.PasswordHash != ""
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
 	if err := a.Store.Settings().Save(ctx, s); err != nil {
 		return domain.Settings{}, err
 	}
-	s.PasswordHash = ""
 	return s, nil
-}
-
-// SetPassword stores a hashed password.
-func (a *App) SetPassword(ctx context.Context, username, password string) error {
-	s, err := a.Store.Settings().Get(ctx)
-	if err != nil {
-		return err
-	}
-	if username != "" {
-		s.Username = username
-	}
-	s.PasswordHash = hashPassword(password)
-	s.PasswordSet = password != ""
-	return a.Store.Settings().Save(ctx, s)
-}
-
-// CheckPassword verifies a login attempt.
-func (a *App) CheckPassword(ctx context.Context, username, password string) bool {
-	s, err := a.Store.Settings().Get(ctx)
-	if err != nil {
-		return false
-	}
-	if s.PasswordHash == "" {
-		return true // no password configured: local-first
-	}
-	if username != "" && s.Username != "" && username != s.Username {
-		return false
-	}
-	return s.PasswordHash == hashPassword(password)
-}
-
-func hashPassword(p string) string {
-	sum := sha256.Sum256([]byte("ozddns:" + p))
-	return hex.EncodeToString(sum[:])
 }

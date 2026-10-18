@@ -10,6 +10,7 @@ const props = defineProps<{ details?: RunDetail[]; summary?: boolean }>();
 const SHAPES: { action: string; kind: string }[] = [
   { action: "created", kind: "ok" },
   { action: "updated", kind: "ok" },
+  { action: "applied", kind: "ok" },
   { action: "failed", kind: "err" },
   { action: "skipped", kind: "warn" },
   { action: "unchanged", kind: "mute" }
@@ -20,6 +21,7 @@ function kind(action: string): string {
   switch (action) {
     case "created":
     case "updated":
+    case "applied":
       return "ok";
     case "failed":
       return "err";

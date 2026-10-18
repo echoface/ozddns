@@ -41,13 +41,18 @@ type Field struct {
 // Meta is the static description of a provider type, surfaced to the panel so
 // the "add provider" form can render itself without hard-coded knowledge.
 type Meta struct {
-	Type            string  `json:"id"`
-	Label           string  `json:"label"`
-	Desc            string  `json:"desc"`
-	Color           string  `json:"color"`
-	Tag             string  `json:"tag"`
-	SupportsProxied bool    `json:"supportsProxied"`
-	Fields          []Field `json:"fields"`
+	Type            string `json:"id"`
+	Label           string `json:"label"`
+	Desc            string `json:"desc"`
+	Color           string `json:"color"`
+	Tag             string `json:"tag"`
+	SupportsProxied bool   `json:"supportsProxied"`
+	// WriteOnly marks a provider whose API cannot read records back (DuckDNS,
+	// Namecheap DDNS, generic webhooks). ListRecords returns nothing for these,
+	// so the engine treats "the address is unchanged since our last write" as
+	// "no change" instead of re-writing on every tick.
+	WriteOnly bool    `json:"writeOnly"`
+	Fields    []Field `json:"fields"`
 }
 
 // Provider is the behaviour every DNS provider adapter implements. The engine

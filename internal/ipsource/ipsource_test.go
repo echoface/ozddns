@@ -3,6 +3,8 @@ package ipsource
 import (
 	"context"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/echoface/ozddns/internal/domain"
@@ -35,6 +37,22 @@ func TestExtractIP(t *testing.T) {
 	}
 }
 
+func TestHTTPSourceRejectsErrorResponses(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("203.0.113.9"))
+	}))
+	defer srv.Close()
+
+	src, err := (httpFactory{}).New(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := src.Get(context.Background(), "v4"); err == nil {
+		t.Fatalf("HTTP error response was accepted as %s", got)
+	}
+}
+
 // SRC-04: static sources validate their literal address.
 func TestStaticSource(t *testing.T) {
 	f := staticFactory{}
@@ -48,6 +66,9 @@ func TestStaticSource(t *testing.T) {
 	addr, err := src.Get(context.Background(), "v6")
 	if err != nil || addr.String() != "2001:db8::5" {
 		t.Fatalf("Get = %v, %v", addr, err)
+	}
+	if _, err := src.Get(context.Background(), "v4"); err == nil {
+		t.Fatal("an IPv6 static source must reject a v4 request")
 	}
 }
 

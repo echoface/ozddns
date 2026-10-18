@@ -33,7 +33,8 @@ desired state differs.
   workers, pause/resume, run-all, and rolling execution history.
 
 - **Operations included**: notification webhooks, configuration backup/restore,
-  Basic authentication, health checks, and structured JSON CLI output.
+  optional password + TOTP authorization, health checks, and structured JSON
+  CLI output.
 
 - **Single-binary delivery**: the production web bundle is embedded with
   `go:embed`.
@@ -157,10 +158,11 @@ Set it with an optional `config.yaml` next to the binary:
 
 ```yaml
 # config.yaml
-listen: 0.0.0.0:9876
+listen: 127.0.0.1:9876    # keep loopback unless a trusted proxy fronts the daemon
 db: /data/ozddns.db
 logLevel: info
 basePath: /                # public prefix, e.g. /ddns behind a sub-path proxy
+trustProxy: false          # true only behind a trusted proxy that overwrites forwarding headers
 ```
 
 The file is optional: if it is missing when `serve` starts, OzDDNS writes this
@@ -171,13 +173,27 @@ after the subcommand, as in `ozddns serve --config /etc/ozddns/config.yaml`.
 Every deployment setting follows the same precedence, so the more specific
 source always wins:
 
-- **`--listen` / `--db` / `--log-level` / `--base-path` flags** (highest)
-- **environment variables** — `OZDDNS_LISTEN`, `OZDDNS_DB`, `OZDDNS_LOG_LEVEL`, `OZDDNS_BASE_PATH`
+- **`--listen` / `--db` / `--log-level` / `--base-path` / `--trust-proxy` flags**
+  (highest)
+- **environment variables** — `OZDDNS_LISTEN`, `OZDDNS_DB`, `OZDDNS_LOG_LEVEL`,
+  `OZDDNS_BASE_PATH`, `OZDDNS_TRUST_PROXY`
 - **`config.yaml`** — path taken from `--config` or `OZDDNS_CONFIG` (default `./config.yaml`)
-- **built-in defaults** — `127.0.0.1:9876`, `./ozddns.db`, `info` (lowest)
+- **built-in defaults** — `127.0.0.1:9876`, `./ozddns.db`, `info`, `/`, `false` (lowest)
+
+`trustProxy` is not a general-purpose "HTTPS is enabled" switch. Enable it only
+when every request reaches OzDDNS through a trusted reverse proxy that
+**overwrites** both `X-Forwarded-Proto` and `X-Forwarded-For`. It controls the
+`Secure` session-cookie flag and also determines the client address used for
+rate limiting and loopback-only authorization enrollment. Trusting headers on a
+directly reachable listener lets a client forge its source address.
 
 `ozddns health` probes the running daemon's `/healthz` endpoint using the same
 resolution, so container and script health checks never guess a port.
+
+`ozddns serve` is the daemon: one long-running process that owns the HTTP
+server, scheduler, reconciliation work, and execution-history retention. There
+is no second OzDDNS supervisor process. systemd, Docker, or another process
+manager may supervise that single process.
 
 ### Reverse proxy (nginx)
 
@@ -215,9 +231,43 @@ The web panel is the shortest setup path:
 3. Create a sync task and its DNS targets.
 4. Preview the reconciliation diff.
 5. Run it once, then leave the scheduler enabled.
-6. Set an administrator password before exposing the panel beyond loopback.
+6. Enable authorization before exposing the panel beyond loopback.
 
-The same flow is available from the CLI:
+### Access modes
+
+- **Local open mode (default)** — the daemon listens on `127.0.0.1:9876` and
+  accepts API requests without credentials. This is the intended mode for a
+  trusted single-user machine.
+- **Authorized mode** — enable it in **Settings → Security**. Setup creates one
+  administrator with a password, a TOTP authenticator, and ten one-time recovery
+  codes. Sign-in is password → TOTP/recovery code → server-side session.
+
+Initial enrollment is accepted only from a loopback client so an exposed,
+still-open instance cannot be claimed remotely. Perform the first setup locally,
+then configure the reverse proxy and expose the authorized instance.
+
+Authorization can be turned off from the panel after re-verifying the password
+and TOTP/recovery code. That deletes the administrator, all sessions, the TOTP
+secret, and every recovery code. Enabling it again starts a completely new
+enrollment with a new TOTP secret.
+
+Authorization protects the HTTP management surface only. The scheduler,
+reconciler, and notification delivery keep running while a browser is signed
+out. OzDDNS currently has one administrator and no separate API-token or role
+model; a script calling a protected endpoint must complete the same login
+handshake and retain the `ozddns_session` cookie.
+
+If both the authenticator and recovery codes are lost, use the local break-glass
+command on the machine that owns the database:
+
+```bash
+./bin/ozddns --db ./ozddns.db auth disable --yes
+```
+
+The provider → IP source → task workflow below is also available from the CLI.
+Authorization enrollment itself is intentionally local and panel-only; the CLI
+exposes `auth status` and the filesystem-protected `auth disable --yes`
+break-glass path.
 
 ```bash
 ./bin/ozddns --db ./ozddns.db provider add \
@@ -258,8 +308,8 @@ The web panel provides the same operations under **Settings → Storage**.
 Execution history is not part of the configuration bundle.
 
 > Configuration exports contain provider credentials so that they can restore a
-> working instance. The panel password hash is excluded. Protect exported files
-> like secrets.
+> working instance. Authorization state, password hashes, TOTP secrets, and
+> recovery codes are excluded. Protect exported files like secrets.
 
 ## Architecture
 
@@ -276,11 +326,13 @@ The main packages are:
 ```text
 cmd/ozddns/          single binary entry point
 internal/app/        use cases shared by web, API, and CLI
+internal/auth/       password, TOTP, recovery-code, and token primitives
 internal/engine/     scheduler and reconciliation diff
 internal/provider/   provider contract and built-in adapters
 internal/ipsource/   HTTP, interface, command, and static sources
 internal/storage/    repository contracts and SQLite implementation
 internal/server/     REST API and HTTP middleware
+scripts/             isolated browser-level end-to-end checks
 web/v2/              Vue 3, TypeScript, and Vite panel
 web/                 embedded production assets
 ```
@@ -312,7 +364,26 @@ See `internal/provider/custom/custom.go` for the smallest built-in adapter.
   resolved at start-up from `--listen`, `OZDDNS_LISTEN`, or `config.yaml`
   (default `127.0.0.1:9876`); the panel only shows it.
 
-- HTTP Basic authentication is enabled after an administrator password is set.
+- Authorization is opt-in. Open mode is safe only while the listener is bound to
+  loopback; the daemon warns and the panel shows a banner when an open instance
+  is reachable from another host.
+
+- First authorization enrollment is accepted only from a loopback client. If a
+  reverse proxy is in front of the daemon, it must overwrite forwarding headers
+  and OzDDNS must be started with `--trust-proxy`; otherwise the daemon cannot
+  distinguish a remote client from the local proxy.
+
+- Authorized mode uses a PBKDF2-SHA256 password hash, RFC 6238 TOTP, single-use
+  recovery codes, and opaque server-side sessions. The browser receives only an
+  `HttpOnly`, `SameSite=Lax` cookie; the database stores token hashes.
+
+- Session lifetime is 30 minutes of inactivity and 12 hours absolute. Turning
+  authorization off invalidates every session immediately.
+
+- The current security model is single-administrator. There are no roles,
+  per-user permissions, or standalone API tokens. Login, MFA, and sensitive
+  actions use bounded per-source-IP token buckets in the single OzDDNS process;
+  the limiter retains at most 8192 counters and evicts expired/old entries.
 
 - Provider secrets are masked in normal API, CLI, and panel reads.
 
@@ -346,6 +417,22 @@ cd web/v2
 npm ci
 npm run dev
 ```
+
+The authorization and protected-panel contract is also covered by a real
+Headless Chrome/CDP test. Start a fresh OzDDNS instance and an isolated headless
+Chromium with a CDP endpoint, then run:
+
+```bash
+OZDDNS_E2E_URL=http://127.0.0.1:9876 \
+OZDDNS_CDP_URL=http://127.0.0.1:9222 \
+node scripts/e2e-auth-cdp.mjs
+```
+
+The script drives the built panel, not the user's normal browser session. It
+checks open local mode, health access, TOTP enrollment, recovery codes, session
+reload, offline sign-out safety, API gating, TOTP/recovery-code replay
+rejection, authorization disable/re-enable, session invalidation, primary
+routes, and desktop/mobile overflow.
 
 The generated `web/v2/dist` directory is intentionally committed because
 `go:embed`, `go install`, and direct Go tests require an embeddable panel to be

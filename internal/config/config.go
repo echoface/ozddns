@@ -2,8 +2,8 @@
 //
 // It deliberately holds only *deployment* knobs — things that decide how the
 // process runs, not how it behaves at runtime. Anything a user can change from
-// the panel (providers, IP sources, tasks, timezone, password, ...) lives in the
-// database instead, so the two never fight over the same value.
+// the panel (providers, IP sources, tasks, settings, authorization, ...) lives
+// in the database instead, so the two never fight over the same value.
 //
 // The file is a small, flat YAML subset (also valid JSON). Only top-level
 // "key: value" scalar lines are understood; nested maps, lists and anchors are
@@ -26,6 +26,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -40,6 +41,12 @@ type File struct {
 	// BasePath is the public prefix the panel and API are served under, so a
 	// reverse proxy can mount them at https://host/ddns/ without rebuilding.
 	BasePath string `json:"basePath"`
+	// TrustProxy allows the server to trust X-Forwarded-Proto when deciding
+	// whether to mark the session cookie Secure, and X-Forwarded-For when
+	// identifying clients for rate limits and loopback-only enrollment. Enable
+	// it only when every request reaches OzDDNS through a reverse proxy that
+	// overwrites both headers.
+	TrustProxy bool `json:"trustProxy"`
 }
 
 // DefaultTemplate is the annotated file written on first run, so a fresh
@@ -47,8 +54,8 @@ type File struct {
 const DefaultTemplate = `# OzDDNS deployment configuration.
 #
 # Read once at start-up. Each key is overridden by, in order:
-#   1. the matching command-line flag     (--listen / --db / --log-level / --base-path)
-#   2. the environment variable           (OZDDNS_LISTEN / OZDDNS_DB / OZDDNS_LOG_LEVEL / OZDDNS_BASE_PATH)
+#   1. the matching command-line flag     (--listen / --db / --log-level / --base-path / --trust-proxy)
+#   2. the environment variable           (OZDDNS_LISTEN / OZDDNS_DB / OZDDNS_LOG_LEVEL / OZDDNS_BASE_PATH / OZDDNS_TRUST_PROXY)
 #   3. the value below
 #
 # These are deployment knobs only. Providers, tasks, IP sources and the rest of
@@ -60,11 +67,16 @@ logLevel: info
 # e.g. https://app.example.com/ddns/ -> "/ddns". Leave "/" for a root mount or
 # a dedicated domain.
 basePath: /
+
+# Only enable this behind a reverse proxy that overwrites X-Forwarded-Proto
+# and X-Forwarded-For. It marks HTTPS session cookies Secure and preserves the
+# real client address for rate limits and local-only enrollment.
+trustProxy: false
 `
 
 // Default returns the built-in defaults.
 func Default() File {
-	return File{Listen: "127.0.0.1:9876", DB: "./ozddns.db", LogLevel: "info", BasePath: "/"}
+	return File{Listen: "127.0.0.1:9876", DB: "./ozddns.db", LogLevel: "info", BasePath: "/", TrustProxy: false}
 }
 
 // WriteDefault creates path with DefaultTemplate when it does not exist yet,
@@ -140,6 +152,12 @@ func Parse(data []byte) (*File, error) {
 			f.LogLevel = value
 		case "basepath", "base_path", "base-path":
 			f.BasePath = value
+		case "trustproxy", "trust_proxy", "trust-proxy":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return nil, fmt.Errorf("line %d: invalid trustProxy value %q", i+1, value)
+			}
+			f.TrustProxy = parsed
 		default:
 			// Unknown keys are ignored for forward compatibility.
 		}
