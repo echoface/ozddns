@@ -30,13 +30,18 @@ func (e *env) cmdServe(args []string) int {
 	noScheduler := fs.Bool("no-scheduler", false, "start with scheduling paused")
 	logLevel := fs.String("log-level", "", "log level: debug | info | warn | error (default info)")
 	trustProxy := fs.Bool("trust-proxy", false, "trust X-Forwarded-Proto and X-Forwarded-For from a reverse proxy (overrides OZDDNS_TRUST_PROXY and config.yaml)")
+	trustedNetwork := fs.Bool("trusted-network", false, "assert the bind address is only reachable from networks you control; silences the beyond-loopback exposure warning (overrides OZDDNS_TRUSTED_NETWORK and config.yaml)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	trustProxySet := false
+	trustedNetworkSet := false
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "trust-proxy" {
+		switch f.Name {
+		case "trust-proxy":
 			trustProxySet = true
+		case "trusted-network":
+			trustedNetworkSet = true
 		}
 	})
 	// --config may also be given after the subcommand; re-resolve if so.
@@ -76,6 +81,11 @@ func (e *env) cmdServe(args []string) int {
 		fmt.Fprintln(e.err, "error:", err)
 		return 2
 	}
+	trustedNet, err := e.resolveTrustedNetwork(*trustedNetwork, trustedNetworkSet)
+	if err != nil {
+		fmt.Fprintln(e.err, "error:", err)
+		return 2
+	}
 
 	// A missing config file is created with the documented defaults so a fresh
 	// install has something to edit. A read-only directory is not fatal.
@@ -106,6 +116,7 @@ func (e *env) cmdServe(args []string) int {
 	addr, source := e.resolveListen(*listen)
 	a.ListenAddr = addr
 	a.ListenSource = source
+	a.TrustedNetwork = trustedNet
 
 	a.BasePath = base
 	a.BasePathSource = baseSource

@@ -150,6 +150,7 @@ db: /data/ozddns.db
 logLevel: info
 basePath: /                # 对外访问前缀，子路径反代时例如 /ddns
 trustProxy: false          # 仅当可信反向代理会覆盖转发头时才设为 true
+trustedNetwork: false      # 仅当监听地址只在自己控制的网络内可达时才设为 true
 ```
 
 该文件是可选的：`serve` 启动时若不存在，OzDDNS 会写入这份带注释的默认配置并继续运行
@@ -157,18 +158,28 @@ trustProxy: false          # 仅当可信反向代理会覆盖转发头时才设
 放在子命令之后，例如 `ozddns serve --config /etc/ozddns/config.yaml`。
 
 所有部署项遵循同一优先级，越具体的来源优先级越高：
+**命令行参数 > 环境变量 > `config.yaml` > 内置默认值**。每种设置都可以用任一方式给出，
+名称一一对应如下。
 
-- **`--listen` / `--db` / `--log-level` / `--base-path` / `--trust-proxy`
-  命令行参数**（最高）
-- **环境变量** —— `OZDDNS_LISTEN`、`OZDDNS_DB`、`OZDDNS_LOG_LEVEL`、
-  `OZDDNS_BASE_PATH`、`OZDDNS_TRUST_PROXY`
-- **`config.yaml`** —— 路径由 `--config` 或 `OZDDNS_CONFIG` 指定（默认 `./config.yaml`）
-- **内置默认值** —— `127.0.0.1:9876`、`./ozddns.db`、`info`、`/`、`false`（最低）
+| 环境变量 | 命令行参数 | `config.yaml` 键 | 默认值 | 作用 |
+| --- | --- | --- | --- | --- |
+| `OZDDNS_LISTEN` | `--listen` | `listen` | `127.0.0.1:9876` | API 与管理面板的监听地址。 |
+| `OZDDNS_DB` | `--db` | `db` | `./ozddns.db` | SQLite 数据库路径。 |
+| `OZDDNS_LOG_LEVEL` | `--log-level` | `logLevel` | `info` | `debug`、`info`、`warn` 或 `error`。 |
+| `OZDDNS_BASE_PATH` | `--base-path` | `basePath` | `/` | 挂载在子路径反向代理后时的对外前缀。 |
+| `OZDDNS_TRUST_PROXY` | `--trust-proxy` | `trustProxy` | `false` | 信任由反向代理**覆盖写入**的 `X-Forwarded-Proto` / `X-Forwarded-For`。 |
+| `OZDDNS_TRUSTED_NETWORK` | `--trusted-network` | `trustedNetwork` | `false` | 声明监听地址只在自己控制的网络内可达；关闭“超出回环”暴露警告。 |
+| `OZDDNS_CONFIG` | `--config` | — | `./config.yaml` | 配置文件路径（文件自身位置没有对应的键）。 |
 
 `trustProxy` 不是通用的“已经启用 HTTPS”开关。只有当**每个请求**都经过可信反向代理，
 并且代理会**覆盖** `X-Forwarded-Proto` 与 `X-Forwarded-For` 时才能开启。它同时决定
 Session Cookie 的 `Secure` 属性，以及限流和“仅回环可首次配置”判断所使用的客户端
 地址。直接可达的监听若信任这些请求头，客户端就可以伪造来源地址。
+
+`trustedNetwork` 同样不是代理开关。它是运营者的显式声明：监听地址只在自己控制的网络内
+可达——局域网，或 Tailscale 之类的覆盖网——因此有意绑定在回环之外的开放面板不再被标记。
+它只去掉警告与面板提示，本身不提供任何访问控制。任何公网可直达的监听都不要开启它，并请
+同时收紧绑定、代理 ACL 与网络 ACL。
 
 `ozddns health` 会按同一套优先级解析地址并探测 `/healthz`，容器与脚本健康检查无需硬编码端口。
 
@@ -331,6 +342,10 @@ web/                 嵌入式生产资源
 
 - 授权是可选功能。开放模式只有在监听回环地址时才适合使用；当开放实例可从其他
   主机访问时，守护进程会记录警告，面板也会显示全局提示。
+
+- `--trusted-network` / `OZDDNS_TRUSTED_NETWORK` / `trustedNetwork` 可对“仅在
+  自己控制的网络内可达”的监听关闭上述警告——例如局域网或 Tailscale 覆盖网。它不
+  改变任何访问控制；公网可直达的监听不得开启。
 
 - 首次授权配置只接受回环客户端。若前置反向代理，代理必须覆盖转发头，并且 OzDDNS
   必须以 `--trust-proxy` 启动；否则服务端无法区分远端客户端与本地代理。

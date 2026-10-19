@@ -119,7 +119,11 @@ takeover path where an operator exposes an open instance before creating the
 administrator and a remote client enrolls first.
 
 If an open instance is bound beyond loopback, the CLI warns at startup and the
-panel shows a global banner. Session cookies become `Secure` when the request
+panel shows a global banner. A bind that is reachable only on networks the
+operator controls — a LAN, or an overlay such as Tailscale — can declare
+`trustedNetwork` (`--trusted-network` / `OZDDNS_TRUSTED_NETWORK`) to suppress
+that warning; it is a trust assertion, not access control. Session cookies
+become `Secure` when the request
 is TLS or when `--trust-proxy` trusts an HTTPS forwarded scheme. The same flag
 also makes client classification use `X-Forwarded-For` for rate limiting and
 loopback-only enrollment. Enable it only when every request arrives through a
@@ -288,7 +292,7 @@ POST   /config/import
 | Decision | Rationale and consequence |
 |---|---|
 | Server-side opaque sessions instead of JWT | Authorization can be revoked immediately by deleting one session or all sessions; no bearer credential or signing key is exposed to browser JavaScript. The cookie is `HttpOnly`, `SameSite=Lax`, and `Secure` on HTTPS. |
-| Open mode by default, loopback bind by default | A local single-user install is useful without security setup to complete. Open mode is not a supported exposure model; the CLI warns and the panel banners an open listener that is reachable beyond loopback. |
+| Open mode by default, loopback bind by default | A local single-user install is useful without security setup to complete. Open mode is not a supported exposure model; the CLI warns and the panel banners an open listener that is reachable beyond loopback, unless the operator asserts a `trustedNetwork` bind reachable only on networks they control. |
 | Authorization is opt-in and protects HTTP only | DNS scheduling is the product's core job and must not stop merely because an operator is signed out. Authorization gates management mutations and reads, not the background engine. |
 | First enrollment is loopback-only | An exposed but unenrolled instance must not be claimable by the first remote visitor. A trusted reverse proxy can preserve the real client address only when `trustProxy` is enabled and the proxy overwrites forwarded headers. |
 | One administrator, no roles or API tokens | This keeps the current security model explicit and auditable. Multi-user tenancy, delegated permissions, and machine tokens require a separate design rather than an ad-hoc extension. |

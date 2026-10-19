@@ -13,6 +13,12 @@
 # below and switch OZDDNS_LISTEN back to 0.0.0.0:9876 — interface IP sources will
 # then only see the container's own interfaces.
 #
+# Binding beyond loopback on a *private* network you control (a LAN, or an
+# overlay such as Tailscale) without authorization is allowed, but the daemon
+# warns because it cannot tell the difference from a public bind. Assert it with
+# OZDDNS_TRUSTED_NETWORK=true to silence the warning and panel banner. Never use
+# it for a bind that is reachable from the public internet.
+#
 # The listen address is deployment config: it comes from OZDDNS_LISTEN (below),
 # the --listen flag, or config.yaml — not from the panel/database. Under host
 # networking the port comes only from OZDDNS_LISTEN (there is no ports mapping).
@@ -41,6 +47,9 @@ services:
     environment:
       OZDDNS_DB: /data/ozddns.db
       OZDDNS_LISTEN: 127.0.0.1:9876
+      # Silence the beyond-loopback exposure warning when OZDDNS_LISTEN is a
+      # private/overlay address you control (e.g. a Tailscale 100.64.x.x):
+      # OZDDNS_TRUSTED_NETWORK: "true"
       # Mount the panel under a reverse-proxy sub-path (see docs/nginx.md):
       # OZDDNS_BASE_PATH: /ddns
       TZ: Asia/Shanghai

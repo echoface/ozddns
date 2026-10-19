@@ -80,6 +80,41 @@ func TestExplicitMissingConfigIsAnErrorForOneOffCommands(t *testing.T) {
 	}
 }
 
+func TestTrustedNetworkResolvesFromConfigAndEnv(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	body := "db: " + filepath.Join(dir, "trusted.db") + "\nlisten: 100.64.0.10:9876\ntrustedNetwork: true\n"
+	if err := os.WriteFile(cfgPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// config.yaml is enough to silence the exposure note on an overlay bind.
+	if _, out, _ := run(t, "--config", cfgPath, "auth", "status"); !strings.Contains(out, "network declared trusted") {
+		t.Fatalf("config trustedNetwork was not applied: %q", out)
+	}
+	// The environment variable overrides config.yaml in the other direction.
+	t.Setenv("OZDDNS_TRUSTED_NETWORK", "false")
+	if _, out, _ := run(t, "--config", cfgPath, "auth", "status"); !strings.Contains(out, "reachable beyond loopback") {
+		t.Fatalf("OZDDNS_TRUSTED_NETWORK=false did not override config.yaml: %q", out)
+	}
+}
+
+func TestResolveTrustedNetworkPrecedence(t *testing.T) {
+	// An explicit flag wins, including an explicit false.
+	t.Setenv("OZDDNS_TRUSTED_NETWORK", "true")
+	e := &env{}
+	if v, err := e.resolveTrustedNetwork(false, true); err != nil || v {
+		t.Fatalf("explicit --trusted-network=false = %v (err %v), want false", v, err)
+	}
+	if v, err := e.resolveTrustedNetwork(false, false); err != nil || !v {
+		t.Fatalf("env OZDDNS_TRUSTED_NETWORK = %v (err %v), want true", v, err)
+	}
+	// A malformed value is a configuration error, not a silent false.
+	t.Setenv("OZDDNS_TRUSTED_NETWORK", "maybe")
+	if _, err := e.resolveTrustedNetwork(false, false); err == nil {
+		t.Fatal("expected an error for a non-boolean OZDDNS_TRUSTED_NETWORK")
+	}
+}
+
 func TestHealthCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/healthz" {

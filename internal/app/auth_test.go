@@ -282,3 +282,33 @@ func TestAuthStateReportsActualNetworkExposure(t *testing.T) {
 		t.Fatal("wildcard listener must be reported as exposed")
 	}
 }
+
+func TestTrustedNetworkSuppressesExposure(t *testing.T) {
+	a := openApp(t)
+	// An overlay address (Tailscale CGNAT) is beyond loopback, so it is exposed
+	// by default and only the explicit assertion clears it.
+	a.ListenAddr = "100.64.0.10:9876"
+	state, err := a.AuthState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Exposed {
+		t.Fatal("an overlay listener must be reported as exposed by default")
+	}
+
+	a.TrustedNetwork = true
+	state, err = a.AuthState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Exposed {
+		t.Fatal("trusted network must suppress the exposure flag")
+	}
+
+	// Loopback is never exposed, with or without the flag.
+	a.ListenAddr = "127.0.0.1:9876"
+	a.TrustedNetwork = false
+	if state, _ = a.AuthState(context.Background()); state.Exposed {
+		t.Fatal("loopback must never be reported as exposed")
+	}
+}

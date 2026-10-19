@@ -47,6 +47,13 @@ type File struct {
 	// it only when every request reaches OzDDNS through a reverse proxy that
 	// overwrites both headers.
 	TrustProxy bool `json:"trustProxy"`
+	// TrustedNetwork asserts that the bind address is only reachable through
+	// networks the operator controls — a LAN, or an overlay such as Tailscale —
+	// so an open (no-administrator) panel bound beyond loopback is intentional.
+	// It suppresses the "reachable beyond loopback without authorization"
+	// warning and the panel banner. It is not a proxy switch and adds no access
+	// control of its own; keep the bind and any proxy ACLs tight.
+	TrustedNetwork bool `json:"trustedNetwork"`
 }
 
 // DefaultTemplate is the annotated file written on first run, so a fresh
@@ -54,8 +61,8 @@ type File struct {
 const DefaultTemplate = `# OzDDNS deployment configuration.
 #
 # Read once at start-up. Each key is overridden by, in order:
-#   1. the matching command-line flag     (--listen / --db / --log-level / --base-path / --trust-proxy)
-#   2. the environment variable           (OZDDNS_LISTEN / OZDDNS_DB / OZDDNS_LOG_LEVEL / OZDDNS_BASE_PATH / OZDDNS_TRUST_PROXY)
+#   1. the matching command-line flag     (--listen / --db / --log-level / --base-path / --trust-proxy / --trusted-network)
+#   2. the environment variable           (OZDDNS_LISTEN / OZDDNS_DB / OZDDNS_LOG_LEVEL / OZDDNS_BASE_PATH / OZDDNS_TRUST_PROXY / OZDDNS_TRUSTED_NETWORK)
 #   3. the value below
 #
 # These are deployment knobs only. Providers, tasks, IP sources and the rest of
@@ -72,11 +79,18 @@ basePath: /
 # and X-Forwarded-For. It marks HTTPS session cookies Secure and preserves the
 # real client address for rate limits and local-only enrollment.
 trustProxy: false
+
+# Assert that the bind address is only reachable from networks you control (a
+# LAN, or an overlay such as Tailscale). It silences the "reachable beyond
+# loopback without authorization" warning and panel banner for an open panel.
+# It is not a proxy switch and adds no access control: keep the bind and any
+# proxy ACLs tight.
+trustedNetwork: false
 `
 
 // Default returns the built-in defaults.
 func Default() File {
-	return File{Listen: "127.0.0.1:9876", DB: "./ozddns.db", LogLevel: "info", BasePath: "/", TrustProxy: false}
+	return File{Listen: "127.0.0.1:9876", DB: "./ozddns.db", LogLevel: "info", BasePath: "/", TrustProxy: false, TrustedNetwork: false}
 }
 
 // WriteDefault creates path with DefaultTemplate when it does not exist yet,
@@ -158,6 +172,12 @@ func Parse(data []byte) (*File, error) {
 				return nil, fmt.Errorf("line %d: invalid trustProxy value %q", i+1, value)
 			}
 			f.TrustProxy = parsed
+		case "trustednetwork", "trusted_network", "trusted-network":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return nil, fmt.Errorf("line %d: invalid trustedNetwork value %q", i+1, value)
+			}
+			f.TrustedNetwork = parsed
 		default:
 			// Unknown keys are ignored for forward compatibility.
 		}

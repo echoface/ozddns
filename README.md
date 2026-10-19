@@ -163,6 +163,7 @@ db: /data/ozddns.db
 logLevel: info
 basePath: /                # public prefix, e.g. /ddns behind a sub-path proxy
 trustProxy: false          # true only behind a trusted proxy that overwrites forwarding headers
+trustedNetwork: false      # true only when the bind is reachable solely on networks you control
 ```
 
 The file is optional: if it is missing when `serve` starts, OzDDNS writes this
@@ -171,14 +172,19 @@ at a different path with `--config` or `OZDDNS_CONFIG`; `--config` also works
 after the subcommand, as in `ozddns serve --config /etc/ozddns/config.yaml`.
 
 Every deployment setting follows the same precedence, so the more specific
-source always wins:
+source always wins: **flag > environment variable > `config.yaml` > built-in
+default**. Both the flag and the environment variable are optional; the names
+line up as follows.
 
-- **`--listen` / `--db` / `--log-level` / `--base-path` / `--trust-proxy` flags**
-  (highest)
-- **environment variables** — `OZDDNS_LISTEN`, `OZDDNS_DB`, `OZDDNS_LOG_LEVEL`,
-  `OZDDNS_BASE_PATH`, `OZDDNS_TRUST_PROXY`
-- **`config.yaml`** — path taken from `--config` or `OZDDNS_CONFIG` (default `./config.yaml`)
-- **built-in defaults** — `127.0.0.1:9876`, `./ozddns.db`, `info`, `/`, `false` (lowest)
+| Environment variable | Flag | `config.yaml` key | Default | Purpose |
+| --- | --- | --- | --- | --- |
+| `OZDDNS_LISTEN` | `--listen` | `listen` | `127.0.0.1:9876` | Bind address for the API and panel. |
+| `OZDDNS_DB` | `--db` | `db` | `./ozddns.db` | SQLite database path. |
+| `OZDDNS_LOG_LEVEL` | `--log-level` | `logLevel` | `info` | `debug`, `info`, `warn`, or `error`. |
+| `OZDDNS_BASE_PATH` | `--base-path` | `basePath` | `/` | Public prefix when mounted behind a sub-path reverse proxy. |
+| `OZDDNS_TRUST_PROXY` | `--trust-proxy` | `trustProxy` | `false` | Trust `X-Forwarded-Proto` / `X-Forwarded-For` from a proxy that **overwrites** both. |
+| `OZDDNS_TRUSTED_NETWORK` | `--trusted-network` | `trustedNetwork` | `false` | Assert the bind is reachable only on networks you control; silences the beyond-loopback exposure warning. |
+| `OZDDNS_CONFIG` | `--config` | — | `./config.yaml` | Path to the config file (there is no key for the file's own location). |
 
 `trustProxy` is not a general-purpose "HTTPS is enabled" switch. Enable it only
 when every request reaches OzDDNS through a trusted reverse proxy that
@@ -186,6 +192,13 @@ when every request reaches OzDDNS through a trusted reverse proxy that
 `Secure` session-cookie flag and also determines the client address used for
 rate limiting and loopback-only authorization enrollment. Trusting headers on a
 directly reachable listener lets a client forge its source address.
+
+`trustedNetwork` is not a proxy switch either. It is an explicit assertion that
+the bind address is reachable only through networks you control — a LAN, or an
+overlay such as Tailscale — so an open panel deliberately bound beyond loopback
+is not flagged. It removes only the warning and the panel banner; it adds no
+access control of its own. Leave it off for any bind the public internet can
+reach, and keep the bind, the proxy ACLs, and the network ACLs tight.
 
 `ozddns health` probes the running daemon's `/healthz` endpoint using the same
 resolution, so container and script health checks never guess a port.
@@ -367,6 +380,11 @@ See `internal/provider/custom/custom.go` for the smallest built-in adapter.
 - Authorization is opt-in. Open mode is safe only while the listener is bound to
   loopback; the daemon warns and the panel shows a banner when an open instance
   is reachable from another host.
+
+- `--trusted-network` / `OZDDNS_TRUSTED_NETWORK` / `trustedNetwork` silences that
+  warning for a bind you assert is reachable only on networks you control — a
+  LAN, or an overlay such as Tailscale. It changes no access control: do not set
+  it for a bind the public internet can reach.
 
 - First authorization enrollment is accepted only from a loopback client. If a
   reverse proxy is in front of the daemon, it must overwrite forwarding headers

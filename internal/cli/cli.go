@@ -44,8 +44,9 @@ Global flags (before the command):
 
 Deployment settings are resolved with one precedence everywhere:
   flag > environment > config.yaml > built-in default.
-  --listen / OZDDNS_LISTEN, --db / OZDDNS_DB, --base-path / OZDDNS_BASE_PATH
-  and --trust-proxy / OZDDNS_TRUST_PROXY work the same way as in serve.
+  --listen / OZDDNS_LISTEN, --db / OZDDNS_DB, --base-path / OZDDNS_BASE_PATH,
+  --trust-proxy / OZDDNS_TRUST_PROXY and --trusted-network / OZDDNS_TRUSTED_NETWORK
+  work the same way as in serve.
   A missing config file is written with defaults the first time serve runs.
 
 Run "ozddns <command> -h" for command-specific flags.`
@@ -230,6 +231,27 @@ func (e *env) resolveTrustProxy(flagValue, flagSet bool) (bool, error) {
 	return false, nil
 }
 
+// resolveTrustedNetwork follows the same precedence as the other deployment
+// settings. Like trustProxy, the explicit flag matters because
+// --trusted-network=false must be able to override a config file that enables
+// it.
+func (e *env) resolveTrustedNetwork(flagValue, flagSet bool) (bool, error) {
+	if flagSet {
+		return flagValue, nil
+	}
+	if raw := strings.TrimSpace(os.Getenv("OZDDNS_TRUSTED_NETWORK")); raw != "" {
+		v, err := strconv.ParseBool(raw)
+		if err != nil {
+			return false, fmt.Errorf("OZDDNS_TRUSTED_NETWORK must be true or false, got %q", raw)
+		}
+		return v, nil
+	}
+	if e.cfg != nil {
+		return e.cfg.TrustedNetwork, nil
+	}
+	return false, nil
+}
+
 // resolveBasePath applies the same precedence to the public mount prefix, and
 // validates it so a typo fails at start-up rather than producing a panel that
 // silently serves the wrong URLs.
@@ -276,6 +298,9 @@ func (e *env) withApp(fn func(context.Context, *app.App) int) int {
 	a.ListenAddr, a.ListenSource = e.resolveListen("")
 	if base, source, err := e.resolveBasePath(""); err == nil {
 		a.BasePath, a.BasePathSource = base, source
+	}
+	if trusted, err := e.resolveTrustedNetwork(false, false); err == nil {
+		a.TrustedNetwork = trusted
 	}
 	return fn(context.Background(), a)
 }

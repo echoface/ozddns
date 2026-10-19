@@ -99,6 +99,24 @@ would let a client forge its source address. If another trusted proxy sits in
 front of nginx, normalize the address at that layer instead of passing an
 untrusted chain through.
 
+## Private binds without authorization
+
+Sometimes the daemon must bind *beyond* loopback and still run without
+authorization — for example a Tailscale `100.64.x.x` address that a
+containerized proxy reaches over the overlay. The daemon cannot tell a private
+overlay from a public bind, so it warns and the panel shows a banner. When the
+address is reachable only on networks you control, say so explicitly:
+
+```bash
+ozddns serve --trusted-network
+# or OZDDNS_TRUSTED_NETWORK=true, or trustedNetwork: true in config.yaml
+```
+
+This silences the exposure warning and the panel banner. It adds no access
+control of its own: keep the bind, the proxy ACLs, and the network ACLs (for
+example Tailscale ACLs) tight, and never set it for a bind the public internet
+can reach.
+
 ## Verifying a deployment
 
 ```bash

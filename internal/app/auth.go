@@ -78,7 +78,7 @@ func (a *App) AuthEnabled(ctx context.Context) (bool, error) {
 // AuthState summarizes the mode for the public /auth/state endpoint.
 func (a *App) AuthState(ctx context.Context) (AuthState, error) {
 	now := time.Now().UTC()
-	state := AuthState{Listen: a.ListenAddr, Exposed: !a.listenIsLoopback()}
+	state := AuthState{Listen: a.ListenAddr, Exposed: a.listenExposed()}
 
 	user, err := a.Store.Auth().User(ctx)
 	switch {
@@ -490,6 +490,15 @@ func (a *App) audit(ctx context.Context, event, username, detail string, client 
 		At: time.Now().UTC(), Event: event, Username: username, Detail: detail,
 		IP: client.IP, UserAgent: client.UserAgent,
 	})
+}
+
+// listenExposed reports whether an open (no-administrator) panel bound here may
+// be reachable by clients beyond this host and outside a network the operator
+// declared trusted. A trusted network (--trusted-network) is an explicit
+// assertion — a LAN or an overlay such as Tailscale — so the exposure warning is
+// suppressed; it grants no access control on its own.
+func (a *App) listenExposed() bool {
+	return !a.listenIsLoopback() && !a.TrustedNetwork
 }
 
 func (a *App) listenIsLoopback() bool {

@@ -83,6 +83,26 @@ func TestWriteDefaultCreatesAndIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestParseTrustedNetwork(t *testing.T) {
+	f, err := Parse([]byte("trustedNetwork: true\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !f.TrustedNetwork {
+		t.Fatal("trustedNetwork = false, want true")
+	}
+	// Aliases and the JSON form are accepted the same way as trustProxy.
+	for _, raw := range []string{`trusted_network: true`, `trusted-network: true`, `{"trustedNetwork": true}`} {
+		f, err := Parse([]byte(raw))
+		if err != nil || !f.TrustedNetwork {
+			t.Fatalf("Parse(%q) trustedNetwork = %v (err %v), want true", raw, f.TrustedNetwork, err)
+		}
+	}
+	if _, err := Parse([]byte("trustedNetwork: maybe\n")); err == nil {
+		t.Fatal("expected an error for a non-boolean trustedNetwork")
+	}
+}
+
 func TestParseBasePath(t *testing.T) {
 	f, err := Parse([]byte("basePath: /ddns/\n"))
 	if err != nil {

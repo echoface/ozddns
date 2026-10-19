@@ -1236,7 +1236,8 @@ GET /api/v1/auth/state
 - `enabled` 表示管理员账号是否存在。
 - `authenticated` 根据请求携带的 Session Cookie 实时判断。
 - `setupPending` 表示存在尚未完成、尚未过期的 TOTP 配置。
-- `exposed` 表示监听地址是否超出回环范围。
+- `exposed` 表示监听地址是否超出回环范围，且未声明为可信网络
+  （`trustedNetwork`）。
 - 只有已认证管理员才会收到 `username`、`recoveryCodesRemaining` 和 `sessions`；
   匿名响应有意隐藏这些账号细节。
 

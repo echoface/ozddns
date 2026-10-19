@@ -39,6 +39,13 @@ type App struct {
 	// database or edited from the panel.
 	BasePath       string
 	BasePathSource string
+	// TrustedNetwork asserts that the bind address is only reachable through
+	// networks the operator controls (a LAN, or an overlay such as Tailscale).
+	// Like the bind address it is deployment configuration, set by the CLI at
+	// start-up from --trusted-network / OZDDNS_TRUSTED_NETWORK / config.yaml,
+	// never stored in the database. It silences the "reachable beyond loopback"
+	// exposure warning and panel banner but grants no access control itself.
+	TrustedNetwork bool
 
 	healthMu sync.RWMutex
 	health   map[string]providerHealth

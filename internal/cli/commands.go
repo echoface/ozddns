@@ -720,9 +720,12 @@ func (e *env) cmdAuth(args []string) int {
 				fmt.Fprintf(e.out, "recovery codes: %d remaining\n", state.RecoveryCodesRemaining)
 			} else {
 				fmt.Fprintf(e.out, "listen        : %s\n", orDash(state.Listen))
-				if state.Exposed {
+				switch {
+				case state.Exposed:
 					fmt.Fprintln(e.out, "note          : reachable beyond loopback while authorization is off")
-				} else {
+				case a.TrustedNetwork:
+					fmt.Fprintln(e.out, "note          : limited to a network declared trusted; anything that can reach this process has full control")
+				default:
 					fmt.Fprintln(e.out, "note          : open local mode; anything that can reach this process has full control")
 				}
 			}
