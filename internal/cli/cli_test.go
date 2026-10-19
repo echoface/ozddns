@@ -143,12 +143,15 @@ func TestCommandFlow(t *testing.T) {
 	if code, _, errOut := run(t, "--db", db, "source", "add", "--name", "Fixed", "--type", "static", "--family", "v4", "--target", "203.0.113.9"); code != 0 {
 		t.Fatalf("source add: %d %s", code, errOut)
 	}
+	if code, _, errOut := run(t, "--db", db, "source", "add", "--name", "Fixed v6", "--type", "static", "--family", "v6", "--target", "2001:db8::9"); code != 0 {
+		t.Fatalf("v6 source add: %d %s", code, errOut)
+	}
 	if code, _, errOut := run(t, "--db", db, "job", "add", "--name", "Home", "--provider", "Hook", "--source", "Fixed", "--target", "home.example.com:A:300"); code != 0 {
 		t.Fatalf("job add: %d %s", code, errOut)
 	}
-	if _, out, errOut := run(t, "--db", db, "ip"); !strings.Contains(out, "203.0.113.9") ||
+	if _, out, errOut := run(t, "--db", db, "ip", "--v4-source", "Fixed", "--v6-source", "Fixed v6"); !strings.Contains(out, "203.0.113.9") ||
 		!strings.Contains(out, "Fixed") {
-		t.Fatalf("ip should use the active task source: out=%q err=%q", out, errOut)
+		t.Fatalf("ip should use the selected sources: out=%q err=%q", out, errOut)
 	}
 
 	_, out, _ := run(t, "--db", db, "--json", "job", "list")

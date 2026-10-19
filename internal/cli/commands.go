@@ -118,11 +118,28 @@ func (e *env) cmdStatus(args []string) int {
 func (e *env) cmdIP(args []string) int {
 	fs := flag.NewFlagSet("ip", flag.ContinueOnError)
 	fs.SetOutput(e.err)
+	v4Source := fs.String("v4-source", "", "IPv4 source id or name")
+	v6Source := fs.String("v6-source", "", "IPv6 source id or name")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	return e.withApp(func(ctx context.Context, a *app.App) int {
-		ip := a.ResolveIP(ctx)
+		selection := app.IPSourceSelection{}
+		if *v4Source != "" {
+			id, err := resolveSource(ctx, a, *v4Source)
+			if err != nil {
+				return e.fail(err)
+			}
+			selection.V4ID = id
+		}
+		if *v6Source != "" {
+			id, err := resolveSource(ctx, a, *v6Source)
+			if err != nil {
+				return e.fail(err)
+			}
+			selection.V6ID = id
+		}
+		ip := a.ResolveIP(ctx, selection)
 		if e.json {
 			e.printJSON(ip)
 			return 0
@@ -138,8 +155,8 @@ func printIPFamily(w io.Writer, label string, result app.IPFamilyResult) {
 	if result.SourceTarget != "" {
 		source += " · " + result.SourceTarget
 	}
-	if result.Status == app.IPStatusNoActiveTasks {
-		source = "no enabled task uses a source"
+	if result.Status == app.IPStatusNoSource {
+		source = "no source configured"
 	}
 	fmt.Fprintf(w, "%s  %-40s (%s)\n", label, orDash(result.Address), orDash(source))
 	if result.Status == app.IPStatusError && result.Error != "" {

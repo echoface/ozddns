@@ -140,39 +140,32 @@ func TestBootstrapPayload(t *testing.T) {
 	}
 }
 
-func TestIPEndpointReportsActiveTaskSource(t *testing.T) {
+func TestIPEndpointResolvesSelectedSources(t *testing.T) {
 	srv, a := newTestServer(t)
 	ctx := context.Background()
 	if _, err := a.CreateIPSource(ctx, app.IPSourceInput{
-		Name: "unused broken", Type: domain.IPInterface, Family: "v6", Target: "ozddns-no-such-interface",
+		Name: "broken default", Type: domain.IPInterface, Family: "v6", Target: "ozddns-no-such-interface",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	source, err := a.CreateIPSource(ctx, app.IPSourceInput{
-		Name: "active v6", Type: domain.IPStatic, Family: "v6", Target: "2001:db8::40",
+		Name: "selected v6", Type: domain.IPStatic, Family: "v6", Target: "2001:db8::40",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := a.Store.Jobs().Create(ctx, domain.Job{
-		ID: "j-active", Name: "active", ProviderID: "p-unused", IPSourceID: source.ID,
-		Targets: []domain.Target{{Domain: "v6.example.com", Type: domain.RecordAAAA, TTL: 300}},
-		Enabled: true,
-	}); err != nil {
-		t.Fatal(err)
-	}
 
-	body := do(t, srv, "GET", "/api/v1/ip", nil, 200)
+	body := do(t, srv, "GET", "/api/v1/ip?v6SourceId="+source.ID, nil, 200)
 	v6, ok := body["v6"].(map[string]any)
 	if !ok {
 		t.Fatalf("v6 payload = %#v", body["v6"])
 	}
 	if v6["status"] != app.IPStatusOK || v6["address"] != "2001:db8::40" ||
-		v6["sourceId"] != source.ID || v6["tasks"] != float64(1) {
+		v6["sourceId"] != source.ID {
 		t.Fatalf("v6 payload = %#v", v6)
 	}
 	v4, _ := body["v4"].(map[string]any)
-	if v4["status"] != app.IPStatusNoActiveTasks {
+	if v4["status"] != app.IPStatusNoSource {
 		t.Fatalf("v4 payload = %#v", v4)
 	}
 }

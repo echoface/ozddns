@@ -7,6 +7,128 @@
   grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) !important;
 }
 
+.ip-source-picker {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.ip-source-picker > label {
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ip-source-picker > .select-shell {
+  min-width: 0;
+}
+
+.select-shell {
+  position: relative;
+}
+
+.select-shell > select.input {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 42px;
+  cursor: pointer;
+}
+
+.select-shell > select.input:disabled {
+  cursor: not-allowed;
+}
+
+.select-arrow {
+  position: absolute;
+  top: 50%;
+  right: 13px;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--ink-3);
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: color .14s var(--ease);
+}
+
+.select-shell > select.input:focus + .select-arrow {
+  color: var(--coral-700);
+}
+
+.select-shell > select.input:disabled + .select-arrow {
+  opacity: .55;
+}
+
+.ip-address-slot {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  margin-top: 16px;
+  overflow: hidden;
+}
+
+.ip-meta-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 20px;
+  margin-top: 8px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+}
+
+.ip-meta-target,
+.ip-meta-error,
+.ip-meta-empty > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ip-meta-target {
+  flex: 0 1 auto;
+  color: var(--ink-3);
+}
+
+.ip-meta-error {
+  flex: 1 1 auto;
+  color: var(--rust);
+  font-weight: 550;
+}
+
+.ip-meta-empty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ink-3);
+}
+
+.ip-meta-empty > a {
+  flex: none;
+}
+
+.ip-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 22px;
+  border-top: 1px solid var(--line-2);
+  min-width: 0;
+}
+
+.ip-action-hint {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
 .table-card-scroll {
   min-width: 0;
   overflow-x: auto;
@@ -146,6 +268,11 @@
     grid-template-columns: 1fr;
   }
 
+  .ip-source-picker {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
   .totp-enroll {
     align-items: stretch;
     flex-direction: column;
@@ -153,5 +280,15 @@
 
   .totp-qr {
     align-self: center;
+  }
+}
+
+@media (max-width: 760px) {
+  .ip-action-hint {
+    display: none;
+  }
+
+  .ip-actions {
+    padding: 12px 14px;
   }
 }

@@ -278,7 +278,7 @@ GET    /runs?job=&status=&limit=  -> Run[]
 GET    /runs/{id}                 -> Run
 POST   /runs/purge                -> {ok,deleted,keptDays}
 
-GET    /ip                        -> {v4:{address,source,tasks,status},v6:{...},checkedAt}
+GET    /ip?v4SourceId=&v6SourceId= -> {v4:{address,source,status},v6:{...},checkedAt}
 GET    /status                    -> RuntimeStatus
 GET    /settings   PATCH /settings
 POST   /settings/test-notify
@@ -297,7 +297,7 @@ POST   /config/import
 | First enrollment is loopback-only | An exposed but unenrolled instance must not be claimable by the first remote visitor. A trusted reverse proxy can preserve the real client address only when `trustProxy` is enabled and the proxy overwrites forwarded headers. |
 | One administrator, no roles or API tokens | This keeps the current security model explicit and auditable. Multi-user tenancy, delegated permissions, and machine tokens require a separate design rather than an ad-hoc extension. |
 | Disable deletes all authorization state | No dormant password, TOTP secret, recovery code, challenge, or session survives a transition back to open mode. Re-enabling is a new enrollment. |
-| Overview IP reflects active task sources | The panel never picks the first configured source and never probes a built-in public endpoint. It follows sources referenced by enabled tasks, prefers the most recently successful task, and falls through to another active source when one is stale or unavailable. |
+| Overview IP reflects the selected source per family | The operator can inspect any configured IPv4 or IPv6 source, whether or not a sync task uses it. The browser stores the two source choices in `localStorage` because this is presentation state, not instance configuration. Without a stored choice, the first configured source for each family is shown; if none exists, the endpoint returns `no_source`. |
 | Replace import is serialized with runs and edits | The transaction makes the database replacement atomic, while an application-level read/write lock prevents an in-flight run from persisting history for a task the import just deleted. Imported scheduler settings are applied before the import releases that lock. |
 | SQLite and in-process coordination | The deployment target is a single process. The login limiter is an in-memory, per-source-IP token bucket with a hard 8192-entry cap and expired/old-entry eviction. A bitmap cannot represent per-IP counters or time windows; a multi-instance deployment would need a shared limiter and a different session architecture. |
 | Bounded HTTP and audit inputs | Auth payloads are capped at 64 KiB and other API payloads at 8 MiB so unauthenticated JSON parsing cannot grow without bound. Security audit rows retain the newest 10,000 entries; failed sign-ins are still recorded, but rotating source addresses cannot grow the database indefinitely. |

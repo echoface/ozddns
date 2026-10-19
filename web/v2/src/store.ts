@@ -117,15 +117,14 @@ function mapRun(run: any): Run {
 }
 
 function mapIPFamily(item: any): IPFamilyInfo {
-  const status = ["ok", "error", "no_active_tasks"].includes(item?.status)
+  const status = ["ok", "error", "no_source"].includes(item?.status)
     ? item.status as IPFamilyStatus
-    : "no_active_tasks";
+    : "no_source";
   return {
     address: item?.address || "",
     sourceId: item?.sourceId || "",
     source: item?.source || "",
     sourceTarget: item?.sourceTarget || "",
-    tasks: Number(item?.tasks) || 0,
     status,
     error: item?.error || "",
     checkedAt: toMs(item?.checkedAt)

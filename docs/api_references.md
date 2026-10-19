@@ -418,14 +418,12 @@ GET /api/v1/bootstrap
       "sourceId": "src-home-v4",
       "source": "Home IPv4",
       "sourceTarget": "https://api.ipify.org",
-      "tasks": 2,
       "status": "ok",
       "checkedAt": "2026-10-10T08:30:00Z"
     },
     "v6": {
       "address": "",
-      "tasks": 0,
-      "status": "no_active_tasks",
+      "status": "no_source",
       "checkedAt": null
     },
     "checkedAt": "2026-10-10T08:30:00Z"
@@ -571,7 +569,7 @@ GET /api/v1/status
 ### 4.6 探测当前 IP
 
 ```http
-GET /api/v1/ip
+GET /api/v1/ip?v4SourceId=src-home-v4&v6SourceId=src-home-v6
 ```
 
 ```json
@@ -581,7 +579,6 @@ GET /api/v1/ip
     "sourceId": "src-home-v4",
     "source": "Home IPv4",
     "sourceTarget": "https://api.ipify.org",
-    "tasks": 2,
     "status": "ok",
     "checkedAt": "2026-10-10T08:30:00Z"
   },
@@ -590,7 +587,6 @@ GET /api/v1/ip
     "sourceId": "src-home-v6",
     "source": "Home IPv6",
     "sourceTarget": "en0",
-    "tasks": 1,
     "status": "ok",
     "checkedAt": "2026-10-10T08:30:00Z"
   },
@@ -598,21 +594,19 @@ GET /api/v1/ip
 }
 ```
 
-该接口返回的是 **OzDDNS 当前实际管理使用的地址**，不是数据库里任意一个已配置
-来源：
+`v4SourceId` 和 `v6SourceId` 均可省略；省略时分别使用该地址族最早配置的来源。
 
-1. 只有启用中的任务引用的来源才会成为候选。未引用来源不会影响总览结果。
-2. 同一地址族有多个候选来源时，优先使用最近一次成功/无变化任务对应的来源。
-3. 首选来源读取失败时，会依次尝试同一族的其他候选来源；`sourceId`、
-   `source`、`sourceTarget` 和 `tasks` 表示最终结果所属来源。
-4. 一个地址族没有启用任务引用来源时，返回 `status: "no_active_tasks"`，
-   不进行外部探测，也不会用默认公共接口伪造结果。
-5. 所有候选来源都失败时返回 `status: "error"` 和具体 `error`；HTTP 仍为
-   `200`，由面板显示失败状态，而不是把空地址误报为成功。`checkedAt` 是该次
-   检查时间，成功和失败都会记录。
+1. 来源选择与同步任务无关。未被任何任务引用的来源也可以直接读取。
+2. 显式选择的来源不存在，或地址族与参数不匹配时，该族返回
+   `status: "error"` 和具体 `error`。
+3. 一个地址族没有任何来源时返回 `status: "no_source"`，不进行外部探测，
+   也不会用默认公共接口伪造结果。
+4. 来源读取失败时返回 `status: "error"` 和具体 `error`；HTTP 仍为 `200`，
+   由面板显示失败状态，而不是把空地址误报为成功。`checkedAt` 是该次检查时间，
+   成功和失败都会记录。
 
-`status` 取值为 `ok`、`no_active_tasks`、`error`。`tasks` 只统计启用中且
-引用该来源的任务。
+`status` 取值为 `ok`、`no_source`、`error`。面板把每个地址族选中的
+`sourceId` 保存在浏览器 `localStorage`；这是单浏览器的展示偏好，不属于实例配置。
 
 ### 4.7 暂停或恢复调度器
 

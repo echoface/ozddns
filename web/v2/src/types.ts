@@ -106,14 +106,13 @@ export interface IPSource {
   target: string;
 }
 
-export type IPFamilyStatus = "ok" | "error" | "no_active_tasks";
+export type IPFamilyStatus = "ok" | "error" | "no_source";
 
 export interface IPFamilyInfo {
   address: string;
   sourceId: string;
   source: string;
   sourceTarget: string;
-  tasks: number;
   status: IPFamilyStatus;
   error: string;
   checkedAt: number | null;

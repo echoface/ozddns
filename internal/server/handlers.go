@@ -94,7 +94,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleIP(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.App.ResolveIP(r.Context()))
+	query := r.URL.Query()
+	selection := app.IPSourceSelection{
+		V4ID: query.Get("v4SourceId"),
+		V6ID: query.Get("v6SourceId"),
+	}
+	writeJSON(w, http.StatusOK, s.App.ResolveIP(r.Context(), selection))
 }
 
 func (s *Server) handleScheduler(w http.ResponseWriter, r *http.Request) {
