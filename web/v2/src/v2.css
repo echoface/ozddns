@@ -132,9 +132,9 @@
   }
 
   .toasts {
-    left: 12px;
-    right: 12px;
-    bottom: 12px;
+    left: calc(12px + var(--inset-left));
+    right: calc(12px + var(--inset-right));
+    bottom: calc(12px + var(--inset-bottom));
   }
 
   .toast {

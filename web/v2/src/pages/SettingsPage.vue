@@ -282,6 +282,12 @@ async function rotateRecoveryCodes(): Promise<void> {
   }
 }
 
+// How many tasks reference a source. Rendered in its own column on wide
+// screens and folded under the source name on phones.
+function usedByCount(source: any): number {
+  return data.jobs.filter((job) => job.ipSourceId === source.id).length;
+}
+
 async function testSource(source: any): Promise<void> {
   if (testingId.value) return;
   testingId.value = source.id;
@@ -582,11 +588,11 @@ async function copy(value: string): Promise<void> {
     <Banner kind="info" title="What an IP source is" body="An IP source answers one question for a task — what address should this record hold right now? OzDDNS resolves it over HTTP, from a network interface, a shell command, or a fixed value, then writes it to your provider. Sources are reusable: pick one from the dropdown on the task form, or create a new one right there." />
     <div class="card mt16">
       <div class="card-head"><span class="h">{{ t("IP sources") }}</span><span class="spacer" /><button class="btn sm primary" @click="modal = { type: 'source' }"><Icon name="plus" />{{ t("Add source") }}</button></div>
-      <div v-if="data.ipSources.length" class="table-wrap"><table class="table src-table"><thead><tr><th>{{ t("Name") }}</th><th class="col-type">{{ t("Type") }}</th><th>{{ t("Family") }}</th><th>{{ t("Target") }}</th><th>{{ t("Used by") }}</th><th class="r">{{ t("Actions") }}</th></tr></thead>
+      <div v-if="data.ipSources.length" class="table-wrap"><table class="table src-table"><thead><tr><th>{{ t("Name") }}</th><th class="col-type">{{ t("Type") }}</th><th>{{ t("Family") }}</th><th class="col-target">{{ t("Target") }}</th><th class="col-usedby">{{ t("Used by") }}</th><th class="r">{{ t("Actions") }}</th></tr></thead>
         <tbody><tr v-for="source in data.ipSources" :key="source.id">
-          <td class="row-title">{{ source.name }}<span class="row-sub mono sub-target">{{ source.target }}</span></td>
+          <td class="row-title">{{ source.name }}<span class="row-sub mono sub-target">{{ source.target }}</span><span class="row-sub sub-usedby">{{ t("Used by {n} task(s)", { n: usedByCount(source) }) }}</span></td>
           <td class="col-type">{{ data.ipSourceTypes.find(item => item.id === source.type)?.label || source.type }}</td><td><Pill :kind="source.family === 'v6' ? 'violet' : 'info'">{{ source.family.toUpperCase() }}</Pill></td>
-          <td class="mono tiny col-target">{{ source.target }}</td><td class="num">{{ data.jobs.filter(job => job.ipSourceId === source.id).length }}</td>
+          <td class="mono tiny col-target">{{ source.target }}</td><td class="num col-usedby">{{ usedByCount(source) }}</td>
           <td class="r"><div class="hstack" style="justify-content:flex-end;gap:6px"><button class="btn sm" :disabled="testingId === source.id" @click="testSource(source)"><Icon :class="testingId === source.id ? 'spin' : ''" :name="testingId === source.id ? 'loader' : 'refresh'" /><span class="lbl">{{ t(testingId === source.id ? "Testing…" : "Test") }}</span></button><button class="icon-btn" :disabled="testingId !== ''" :aria-label="t('Edit')" @click="modal = { type: 'source', source }"><Icon name="pencil" /></button><button class="icon-btn act-copy" :aria-label="t('Copy target')" @click="copy(source.target)"><Icon name="copy" /></button><button class="icon-btn" :disabled="testingId !== ''" :aria-label="t('Delete')" @click="removeSource(source)"><Icon name="trash" /></button></div></td>
         </tr></tbody>
       </table></div>

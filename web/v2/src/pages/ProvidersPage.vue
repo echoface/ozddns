@@ -33,7 +33,7 @@ const segments = computed(() => [
     </template>
   </PageHead>
 
-  <div class="between mb16">
+  <div class="between wrap mb16">
     <div class="seg">
       <button
         v-for="segment in segments"
@@ -42,7 +42,7 @@ const segments = computed(() => [
         @click="providerFilter = String(segment[0])"
       >{{ t(String(segment[1])) }} · {{ segment[2] }}</button>
     </div>
-    <span class="tiny muted">{{ t("Filter by state, or use the search box above to jump anywhere.") }}</span>
+    <span class="tiny muted hide-sm">{{ t("Filter by state, or use the search box above to jump anywhere.") }}</span>
   </div>
 
   <div v-if="list.length" class="grid cols-3 reveal">
