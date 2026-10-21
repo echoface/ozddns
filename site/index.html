@@ -1,0 +1,1052 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OzDDNS — DNS records that stay in sync</title>
+    <meta
+      id="meta-desc"
+      name="description"
+      content="OzDDNS is a provider-centric dynamic DNS manager. It discovers your address, reads the live record, and writes only when the two disagree. One Go binary with a web panel, REST API, CLI, scheduler, and SQLite."
+    />
+    <meta name="theme-color" content="#06080b" />
+    <meta name="color-scheme" content="dark light" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="OzDDNS" />
+    <meta property="og:title" content="OzDDNS — DNS records that stay in sync" />
+    <meta
+      property="og:description"
+      content="Provider-centric dynamic DNS in a single Go binary. Read, diff, write only when needed."
+    />
+    <meta property="og:image" content="assets/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="zh_CN" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="OzDDNS — DNS records that stay in sync" />
+    <meta
+      name="twitter:description"
+      content="Provider-centric dynamic DNS in a single Go binary. Read, diff, write only when needed."
+    />
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="assets/style.css" />
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem("oz-theme");
+          if (theme !== "light" && theme !== "dark") {
+            theme = window.matchMedia("(prefers-color-scheme: light)").matches
+              ? "light"
+              : "dark";
+          }
+          document.documentElement.dataset.theme = theme;
+        } catch (e) {}
+        document.documentElement.classList.add("js");
+      })();
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main" data-en="Skip to content" data-zh="跳到正文"
+      >Skip to content</a
+    >
+
+    <header class="site-header" id="top">
+      <div class="wrap header-inner">
+        <a class="brand" href="#top" aria-label="OzDDNS">
+          <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+            <circle
+              cx="16"
+              cy="16"
+              r="10.5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              opacity=".3"
+            />
+            <path
+              d="M16 5.5A10.5 10.5 0 0 1 26.5 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.6"
+              stroke-linecap="round"
+            />
+            <circle cx="16" cy="16" r="3.2" fill="currentColor" />
+          </svg>
+          <span class="brand-name">OzDDNS</span>
+          <span class="brand-ver">v2.0.3</span>
+        </a>
+
+        <nav class="nav" id="nav" aria-label="Main">
+          <a href="#how" data-en="How it works" data-zh="工作方式">How it works</a>
+          <a href="#features" data-en="Features" data-zh="特性">Features</a>
+          <a href="#providers" data-en="Providers" data-zh="服务商">Providers</a>
+          <a href="#deploy" data-en="Deploy" data-zh="部署">Deploy</a>
+          <a href="#security" data-en="Security" data-zh="安全">Security</a>
+          <a href="#docs" data-en="Docs" data-zh="文档">Docs</a>
+        </nav>
+
+        <div class="header-actions">
+          <button
+            class="icon-btn lang-btn"
+            id="lang-toggle"
+            type="button"
+            aria-label="Switch language"
+          >
+            中文
+          </button>
+          <button
+            class="icon-btn theme-btn"
+            id="theme-toggle"
+            type="button"
+            aria-label="Switch theme"
+          >
+            <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="4.2" />
+              <path
+                d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"
+              />
+            </svg>
+            <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z" />
+            </svg>
+          </button>
+          <a
+            class="btn btn-sm btn-ghost header-github"
+            href="https://github.com/echoface/ozddns"
+            target="_blank"
+            rel="noreferrer"
+            >GitHub</a
+          >
+          <button
+            class="icon-btn menu-btn"
+            id="menu-toggle"
+            type="button"
+            aria-label="Open menu"
+            aria-expanded="false"
+            aria-controls="nav"
+          >
+            <span></span><span></span><span></span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero">
+        <div class="wrap hero-grid">
+          <div class="hero-copy">
+            <p class="eyebrow">
+              <span class="pulse" aria-hidden="true"></span>
+              <span data-en="v2.0.3 · self-hosted dynamic DNS" data-zh="v2.0.3 · 自托管动态 DNS"
+                >v2.0.3 · self-hosted dynamic DNS</span
+              >
+            </p>
+            <h1
+              data-en='DNS records that<br /><span class="grad">stay in sync.</span>'
+              data-zh='让 DNS 记录<br /><span class="grad">始终同步。</span>'
+            >
+              DNS records that<br /><span class="grad">stay in sync.</span>
+            </h1>
+            <p
+              class="lede"
+              data-en="OzDDNS discovers your address, reads the live record, and writes only when the two disagree. The panel, REST API, CLI, scheduler, and SQLite storage all ship in one Go binary."
+              data-zh="OzDDNS 会发现你的地址，读取线上记录，只在两者不一致时写入。管理面板、REST API、CLI、调度器与 SQLite 存储，全部打包在一个 Go 二进制里。"
+            >
+              OzDDNS discovers your address, reads the live record, and writes only
+              when the two disagree. The panel, REST API, CLI, scheduler, and SQLite
+              storage all ship in one Go binary.
+            </p>
+            <div class="hero-cta">
+              <a class="btn btn-primary" href="#deploy" data-en="Get started" data-zh="快速开始"
+                >Get started</a
+              >
+              <a
+                class="btn btn-ghost"
+                href="https://github.com/echoface/ozddns"
+                target="_blank"
+                rel="noreferrer"
+                data-en="View on GitHub"
+                data-zh="在 GitHub 查看"
+                >View on GitHub</a
+              >
+            </div>
+            <p
+              class="hero-note"
+              data-en="Binds to 127.0.0.1 by default — HTTPS stays at your reverse proxy."
+              data-zh="默认仅监听 127.0.0.1 — HTTPS 由你的反向代理终止。"
+            >
+              Binds to 127.0.0.1 by default — HTTPS stays at your reverse proxy.
+            </p>
+            <ul class="hero-meta" aria-label="Stack">
+              <li data-en="Single binary" data-zh="单二进制">Single binary</li>
+              <li>Go 1.26+</li>
+              <li>SQLite</li>
+              <li>Docker</li>
+            </ul>
+          </div>
+
+          <div class="hero-visual">
+            <div class="term">
+              <div class="term-bar">
+                <span class="term-dots" aria-hidden="true"
+                  ><i></i><i></i><i></i
+                ></span>
+                <span class="term-title">ozddns — docker</span>
+                <button
+                  class="copy"
+                  type="button"
+                  data-copy
+                  aria-label="Copy quick start command"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="9" y="9" width="11" height="11" rx="2" />
+                    <path d="M15 5.5A2.5 2.5 0 0 0 12.5 3H6a3 3 0 0 0-3 3v6.5A2.5 2.5 0 0 0 5.5 15" />
+                  </svg>
+                  <span class="copy-label" data-en="Copy" data-zh="复制">Copy</span>
+                </button>
+              </div>
+              <pre><code><span class="c"># one volume, one container, one process</span>
+docker volume create ozddns-data
+
+docker run -d --name ozddns \
+  --restart unless-stopped \
+  -p 127.0.0.1:9876:9876 \
+  -v ozddns-data:/data \
+  ghcr.io/echoface/ozddns:latest \
+  --db /data/ozddns.db \
+  serve --listen 0.0.0.0:9876
+
+<span class="c"># panel → http://127.0.0.1:9876</span></code></pre>
+            </div>
+
+            <div class="preview">
+              <div class="preview-head">
+                <span class="preview-label" data-en="dry-run preview" data-zh="Dry-run 预览"
+                  >dry-run preview</span
+                >
+                <span class="pill"><span class="pill-dot"></span><span data-en="update" data-zh="更新">update</span></span>
+              </div>
+              <dl class="preview-rows">
+                <div class="preview-row">
+                  <dt data-en="task" data-zh="任务">task</dt>
+                  <dd>home.example.com <span class="dim">· A</span></dd>
+                </div>
+                <div class="preview-row">
+                  <dt data-en="source" data-zh="来源">source</dt>
+                  <dd class="mono">https://api.ipify.org</dd>
+                </div>
+                <div class="preview-row">
+                  <dt data-en="current" data-zh="当前">current</dt>
+                  <dd class="mono">198.51.100.7</dd>
+                </div>
+                <div class="preview-row">
+                  <dt data-en="desired" data-zh="目标">desired</dt>
+                  <dd class="mono accent">203.0.113.42</dd>
+                </div>
+              </dl>
+              <p class="preview-foot" data-en="Matching values skip the write entirely." data-zh="值一致时，直接跳过写入。">
+                Matching values skip the write entirely.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="how">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="section-tag"><span>01</span> <span data-en="Reconciliation" data-zh="协调">Reconciliation</span></p>
+            <h2
+              class="reveal"
+              data-en='Read, diff, <span class="grad">then write.</span>'
+              data-zh='先读取，再比较，<span class="grad">必要时才写入。</span>'
+            >
+              Read, diff, <span class="grad">then write.</span>
+            </h2>
+            <p
+              class="section-sub reveal"
+              data-en="Every run follows the same path. Nothing is written on a guess, and every execution is recorded."
+              data-zh="每次执行都走同一条路径。不靠猜测写入，每一次执行都有记录。"
+            >
+              Every run follows the same path. Nothing is written on a guess, and
+              every execution is recorded.
+            </p>
+          </div>
+
+          <ol class="steps">
+            <li class="step reveal">
+              <span class="step-num">01</span>
+              <h3 data-en="Discover" data-zh="发现">Discover</h3>
+              <p
+                data-en="Resolve the current address from an HTTP endpoint, a local interface, a shell command, or a static value."
+                data-zh="通过 HTTP 端点、本机网卡、Shell 命令或静态值取得当前地址。"
+              >
+                Resolve the current address from an HTTP endpoint, a local interface,
+                a shell command, or a static value.
+              </p>
+            </li>
+            <li class="step reveal">
+              <span class="step-num">02</span>
+              <h3 data-en="Compare" data-zh="比较">Compare</h3>
+              <p
+                data-en="Read the DNS record from the provider and compute the difference between desired and current."
+                data-zh="从服务商读取 DNS 记录，计算目标值与当前值之间的差异。"
+              >
+                Read the DNS record from the provider and compute the difference
+                between desired and current.
+              </p>
+            </li>
+            <li class="step reveal">
+              <span class="step-num">03</span>
+              <h3 data-en="Write" data-zh="写入">Write</h3>
+              <p
+                data-en="Update only when the target differs, then keep the run in rolling history."
+                data-zh="仅在目标值不同时更新，并将本次执行保留在滚动历史中。"
+              >
+                Update only when the target differs, then keep the run in rolling
+                history.
+              </p>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="section" id="features">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="section-tag"><span>02</span> <span data-en="Capabilities" data-zh="能力">Capabilities</span></p>
+            <h2
+              class="reveal"
+              data-en='Built for the <span class="grad">boring part</span> of DNS.'
+              data-zh='为 DNS 里<span class="grad">最琐碎的部分</span>而设计。'
+            >
+              Built for the <span class="grad">boring part</span> of DNS.
+            </h2>
+            <p
+              class="section-sub reveal"
+              data-en="The interesting part of dynamic DNS is deciding what to write. Everything else should be predictable."
+              data-zh="动态 DNS 里有意思的部分，是决定要写什么。其余的一切都应当是确定的。"
+            >
+              The interesting part of dynamic DNS is deciding what to write.
+              Everything else should be predictable.
+            </p>
+          </div>
+
+          <div class="feature-grid">
+            <article class="feature card reveal">
+              <span class="feature-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1" />
+                  <path d="M20.5 4v5h-5" />
+                </svg>
+              </span>
+              <h3 data-en="Reconciliation first" data-zh="以协调为核心">Reconciliation first</h3>
+              <p
+                data-en="Reads the live record, computes the diff, and writes only when the desired state differs."
+                data-zh="读取线上记录、计算差异，仅在目标状态不同时写入。"
+              >
+                Reads the live record, computes the diff, and writes only when the
+                desired state differs.
+              </p>
+            </article>
+
+            <article class="feature card reveal">
+              <span class="feature-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              </span>
+              <h3 data-en="Safe previews" data-zh="安全预演">Safe previews</h3>
+              <p
+                data-en="Dry-run a task from the panel, the CLI, or the API and inspect the exact change before it lands."
+                data-zh="从面板、CLI 或 API 对任务执行 Dry Run，在变更落地前查看确切内容。"
+              >
+                Dry-run a task from the panel, the CLI, or the API and inspect the
+                exact change before it lands.
+              </p>
+            </article>
+
+            <article class="feature card reveal">
+              <span class="feature-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m12 3 9 5-9 5-9-5 9-5Z" />
+                  <path d="m3 13 9 5 9-5" />
+                </svg>
+              </span>
+              <h3 data-en="Provider accounts" data-zh="服务商实例">Provider accounts</h3>
+              <p
+                data-en="Configure multiple accounts independently and reuse each one across any number of tasks."
+                data-zh="独立配置多个服务商账号，并在任意数量的任务间复用。"
+              >
+                Configure multiple accounts independently and reuse each one across
+                any number of tasks.
+              </p>
+            </article>
+
+            <article class="feature card reveal">
+              <span class="feature-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M3 12h18" />
+                  <path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18Z" />
+                </svg>
+              </span>
+              <h3 data-en="Four address sources" data-zh="四种地址来源">Four address sources</h3>
+              <p
+                data-en="HTTP lookup, local interface, shell command, or a static IPv4/IPv6 value — chosen per task."
+                data-zh="HTTP 查询、本机网卡、Shell 命令或静态 IPv4/IPv6 值，按任务选择。"
+              >
+                HTTP lookup, local interface, shell command, or a static IPv4/IPv6
+                value — chosen per task.
+              </p>
+            </article>
+
+            <article class="feature card reveal">
+              <span class="feature-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="6" cy="12" r="2.5" />
+                  <circle cx="18" cy="6" r="2.5" />
+                  <circle cx="18" cy="18" r="2.5" />
+                  <path d="m8.3 10.9 7.4-3.8M8.3 13.1l7.4 3.8" />
+                </svg>
+              </span>
+              <h3 data-en="One app layer" data-zh="统一应用层">One app layer</h3>
+              <p
+                data-en="Panel, CLI, and API call the same use cases, so behavior cannot drift between surfaces."
+                data-zh="面板、CLI 与 API 调用同一套用例，行为不会在不同入口之间漂移。"
+              >
+                Panel, CLI, and API call the same use cases, so behavior cannot drift
+                between surfaces.
+              </p>
+            </article>
+
+            <article class="feature card reveal">
+              <span class="feature-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 7v5l3.5 2" />
+                </svg>
+              </span>
+              <h3 data-en="Scheduling built in" data-zh="内置调度">Scheduling built in</h3>
+              <p
+                data-en="Per-task intervals, optional jitter, concurrent workers, pause/resume, run-all, and rolling history."
+                data-zh="任务独立周期、可选抖动、并发执行、暂停/恢复、全部运行与滚动历史。"
+              >
+                Per-task intervals, optional jitter, concurrent workers,
+                pause/resume, run-all, and rolling history.
+              </p>
+            </article>
+
+            <article class="feature card reveal">
+              <span class="feature-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
+                  <path d="M10 21a2 2 0 0 0 4 0" />
+                </svg>
+              </span>
+              <h3 data-en="Ops included" data-zh="运维能力">Ops included</h3>
+              <p
+                data-en="Webhook notifications, configuration export/import, health checks, and JSON output from the CLI."
+                data-zh="Webhook 通知、配置导入导出、健康检查，以及 CLI 的 JSON 输出。"
+              >
+                Webhook notifications, configuration export/import, health checks,
+                and JSON output from the CLI.
+              </p>
+            </article>
+
+            <article class="feature card reveal">
+              <span class="feature-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" />
+                  <path d="M4 7.5 12 12l8-4.5M12 12v9" />
+                </svg>
+              </span>
+              <h3 data-en="Single binary" data-zh="单二进制">Single binary</h3>
+              <p
+                data-en="The production Vue panel is embedded with go:embed. Ship one file; there is no runtime to install."
+                data-zh="生产环境 Vue 面板通过 go:embed 嵌入。交付一个文件，无需额外运行时。"
+              >
+                The production Vue panel is embedded with go:embed. Ship one file;
+                there is no runtime to install.
+              </p>
+            </article>
+
+            <article class="feature card reveal">
+              <span class="feature-icon">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 5h9M8.5 5c0 5-2.5 9-6.5 11" />
+                  <path d="M6 11c1.5 2.5 4 4.5 7 5.5" />
+                  <path d="m13 21 4-11 4 11M14.5 17h5" />
+                </svg>
+              </span>
+              <h3 data-en="Localized panel" data-zh="多语言面板">Localized panel</h3>
+              <p
+                data-en="English, Simplified Chinese, and Japanese, with light, dark, and system themes."
+                data-zh="支持 English、简体中文、日本語，以及亮色、暗色与跟随系统主题。"
+              >
+                English, Simplified Chinese, and Japanese, with light, dark, and
+                system themes.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="providers">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="section-tag"><span>03</span> <span data-en="Providers" data-zh="服务商">Providers</span></p>
+            <h2
+              class="reveal"
+              data-en='One engine, <span class="grad">nine backends.</span>'
+              data-zh='一个引擎，<span class="grad">九种后端。</span>'
+            >
+              One engine, <span class="grad">nine backends.</span>
+            </h2>
+            <p
+              class="section-sub reveal"
+              data-en="Each adapter has its own credential form, zone lookup, and record API. The reconciliation engine stays provider-independent."
+              data-zh="每个适配器都有自己的凭据表单、Zone 查询与记录 API。协调引擎始终与服务商无关。"
+            >
+              Each adapter has its own credential form, zone lookup, and record API.
+              The reconciliation engine stays provider-independent.
+            </p>
+          </div>
+
+          <ul class="provider-grid">
+            <li class="provider reveal">
+              <span class="provider-mark">CF</span>
+              <span class="provider-name">Cloudflare</span>
+              <code>cloudflare</code>
+            </li>
+            <li class="provider reveal">
+              <span class="provider-mark">AL</span>
+              <span class="provider-name" data-en="Alibaba Cloud DNS" data-zh="阿里云 DNS">Alibaba Cloud DNS</span>
+              <code>alidns</code>
+            </li>
+            <li class="provider reveal">
+              <span class="provider-mark">DP</span>
+              <span class="provider-name" data-en="DNSPod (Tencent)" data-zh="DNSPod（腾讯云）">DNSPod (Tencent)</span>
+              <code>dnspod</code>
+            </li>
+            <li class="provider reveal">
+              <span class="provider-mark">DK</span>
+              <span class="provider-name">DuckDNS</span>
+              <code>duckdns</code>
+            </li>
+            <li class="provider reveal">
+              <span class="provider-mark">NC</span>
+              <span class="provider-name">Namecheap</span>
+              <code>namecheap</code>
+            </li>
+            <li class="provider reveal">
+              <span class="provider-mark">GD</span>
+              <span class="provider-name">GoDaddy</span>
+              <code>godaddy</code>
+            </li>
+            <li class="provider reveal">
+              <span class="provider-mark">dS</span>
+              <span class="provider-name">deSEC</span>
+              <code>desec</code>
+            </li>
+            <li class="provider reveal">
+              <span class="provider-mark">VC</span>
+              <span class="provider-name">Vercel DNS</span>
+              <code>vercel</code>
+            </li>
+            <li class="provider reveal">
+              <span class="provider-mark">+</span>
+              <span class="provider-name" data-en="Custom HTTP endpoint" data-zh="自定义 HTTP 端点">Custom HTTP endpoint</span>
+              <code>custom</code>
+            </li>
+          </ul>
+
+          <p class="providers-note reveal" data-en="IPv4 A and IPv6 AAAA targets where the provider supports them. Cloudflare proxy state is available on Cloudflare records." data-zh="在服务商支持的前提下管理 IPv4 A 与 IPv6 AAAA 记录；Cloudflare 记录可设置代理状态。">
+            IPv4 A and IPv6 AAAA targets where the provider supports them. Cloudflare
+            proxy state is available on Cloudflare records.
+          </p>
+        </div>
+      </section>
+
+      <section class="section" id="workflow">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="section-tag"><span>04</span> <span data-en="Setup" data-zh="配置">Setup</span></p>
+            <h2
+              class="reveal"
+              data-en='From zero to scheduled, <span class="grad">in four steps.</span>'
+              data-zh='四步完成，<span class="grad">从零到自动同步。</span>'
+            >
+              From zero to scheduled, <span class="grad">in four steps.</span>
+            </h2>
+            <p
+              class="section-sub reveal"
+              data-en="The panel is the shortest path. The same workflow is available from the CLI and the REST API."
+              data-zh="面板是最短的路径；同样的流程也可以通过 CLI 与 REST API 完成。"
+            >
+              The panel is the shortest path. The same workflow is available from the
+              CLI and the REST API.
+            </p>
+          </div>
+
+          <ol class="flow">
+            <li class="flow-step reveal">
+              <span class="flow-num">1</span>
+              <h3 data-en="Connect a provider" data-zh="接入服务商">Connect a provider</h3>
+              <p data-en="Add credentials for one account and validate them against the provider." data-zh="填写一个账号的凭据，并向服务商验证。">
+                Add credentials for one account and validate them against the
+                provider.
+              </p>
+            </li>
+            <li class="flow-step reveal">
+              <span class="flow-num">2</span>
+              <h3 data-en="Add an address source" data-zh="添加地址来源">Add an address source</h3>
+              <p data-en="Choose HTTP, interface, command, or a static address, and pick the IP family." data-zh="选择 HTTP、网卡、命令或静态地址，并指定 IP 类型。">
+                Choose HTTP, interface, command, or a static address, and pick the IP
+                family.
+              </p>
+            </li>
+            <li class="flow-step reveal">
+              <span class="flow-num">3</span>
+              <h3 data-en="Create a task" data-zh="创建任务">Create a task</h3>
+              <p data-en="Point the source at DNS targets such as home.example.com:A:300." data-zh="将来源指向 DNS 目标，例如 home.example.com:A:300。">
+                Point the source at DNS targets such as
+                <code>home.example.com:A:300</code>.
+              </p>
+            </li>
+            <li class="flow-step reveal">
+              <span class="flow-num">4</span>
+              <h3 data-en="Preview, then schedule" data-zh="预览并启用调度">Preview, then schedule</h3>
+              <p data-en="Dry-run the diff, run it once, and leave the interval enabled." data-zh="先 Dry Run 查看差异，执行一次，然后保持周期启用。">
+                Dry-run the diff, run it once, and leave the interval enabled.
+              </p>
+            </li>
+          </ol>
+
+          <div class="cli-strip reveal">
+            <div class="cli-strip-head">
+              <span data-en="The same flow from the CLI" data-zh="用 CLI 完成同样的流程">The same flow from the CLI</span>
+              <button class="copy" type="button" data-copy aria-label="Copy CLI example">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="9" y="9" width="11" height="11" rx="2" />
+                  <path d="M15 5.5A2.5 2.5 0 0 0 12.5 3H6a3 3 0 0 0-3 3v6.5A2.5 2.5 0 0 0 5.5 15" />
+                </svg>
+                <span class="copy-label" data-en="Copy" data-zh="复制">Copy</span>
+              </button>
+            </div>
+            <pre><code>./bin/ozddns --db ./ozddns.db \
+  job run --dry-run &lt;job-id&gt;
+./bin/ozddns --db ./ozddns.db \
+  job run &lt;job-id&gt;</code></pre>
+            <p class="cli-strip-foot" data-en="Provider, source, and task creation all have CLI equivalents. Use --json for machine-readable output." data-zh="服务商、来源与任务均可通过 CLI 创建；使用 --json 获得机器可读输出。">
+              Provider, source, and task creation all have CLI equivalents. Use
+              <code>--json</code> for machine-readable output.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="deploy">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="section-tag"><span>05</span> <span data-en="Deploy" data-zh="部署">Deploy</span></p>
+            <h2
+              class="reveal"
+              data-en='Run it wherever <span class="grad">a container fits.</span>'
+              data-zh='只要有容器，<span class="grad">就能运行。</span>'
+            >
+              Run it wherever <span class="grad">a container fits.</span>
+            </h2>
+            <p
+              class="section-sub reveal"
+              data-en="One process owns the HTTP server, scheduler, reconciliation, and retention. systemd, Docker, or Compose only supervise that process."
+              data-zh="一个进程同时负责 HTTP 服务、调度器、协调执行与历史清理。systemd、Docker 或 Compose 只监督这一个进程。"
+            >
+              One process owns the HTTP server, scheduler, reconciliation, and
+              retention. systemd, Docker, or Compose only supervise that process.
+            </p>
+          </div>
+
+          <div class="deploy-grid">
+            <div class="deploy-main card reveal">
+              <div class="tabs" role="tablist" aria-label="Deployment method">
+                <button
+                  class="tab is-active"
+                  id="tab-docker"
+                  type="button"
+                  role="tab"
+                  aria-selected="true"
+                  aria-controls="panel-docker"
+                  data-tab="docker"
+                >
+                  Docker
+                </button>
+                <button
+                  class="tab"
+                  id="tab-compose"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="panel-compose"
+                  data-tab="compose"
+                  tabindex="-1"
+                >
+                  Compose
+                </button>
+                <button
+                  class="tab"
+                  id="tab-source"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="panel-source"
+                  data-tab="source"
+                  tabindex="-1"
+                >
+                  <span data-en="From source" data-zh="源码构建">From source</span>
+                </button>
+              </div>
+
+              <div class="tab-panel is-active" id="panel-docker" role="tabpanel" aria-labelledby="tab-docker">
+                <div class="code-head">
+                  <span class="code-name">docker</span>
+                  <button class="copy" type="button" data-copy aria-label="Copy Docker command">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <rect x="9" y="9" width="11" height="11" rx="2" />
+                      <path d="M15 5.5A2.5 2.5 0 0 0 12.5 3H6a3 3 0 0 0-3 3v6.5A2.5 2.5 0 0 0 5.5 15" />
+                    </svg>
+                    <span class="copy-label" data-en="Copy" data-zh="复制">Copy</span>
+                  </button>
+                </div>
+                <pre><code>docker volume create ozddns-data
+
+docker run -d \
+  --name ozddns \
+  --restart unless-stopped \
+  -p 127.0.0.1:9876:9876 \
+  -v ozddns-data:/data \
+  ghcr.io/echoface/ozddns:latest \
+  --db /data/ozddns.db \
+  serve --listen 0.0.0.0:9876</code></pre>
+                <p class="code-note" data-en="The published port stays on loopback. Expose it only behind a trusted reverse proxy. Use a version tag such as 2.0.3 for reproducible deploys." data-zh="映射端口保留在回环地址上，仅在可信反向代理之后暴露。需要可复现部署时，请使用 2.0.3 这类版本标签。">
+                  The published port stays on loopback. Expose it only behind a
+                  trusted reverse proxy. Use a version tag such as
+                  <code>2.0.3</code> for reproducible deploys.
+                </p>
+              </div>
+
+              <div class="tab-panel" id="panel-compose" role="tabpanel" aria-labelledby="tab-compose" hidden>
+                <div class="code-head">
+                  <span class="code-name">compose.yaml</span>
+                  <button class="copy" type="button" data-copy aria-label="Copy Compose command">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <rect x="9" y="9" width="11" height="11" rx="2" />
+                      <path d="M15 5.5A2.5 2.5 0 0 0 12.5 3H6a3 3 0 0 0-3 3v6.5A2.5 2.5 0 0 0 5.5 15" />
+                    </svg>
+                    <span class="copy-label" data-en="Copy" data-zh="复制">Copy</span>
+                  </button>
+                </div>
+                <pre><code>docker compose up -d
+
+<span class="c"># pull a specific release</span>
+OZDDNS_IMAGE=ghcr.io/echoface/ozddns:2.0.3 docker compose up -d
+
+<span class="c"># follow the daemon</span>
+docker compose logs -f</code></pre>
+                <p class="code-note" data-en="The bundled Compose file uses host networking so interface sources can read the host's NICs. The panel still binds 127.0.0.1; set OZDDNS_LISTEN to change it." data-zh="仓库自带的 Compose 配置使用 host 网络，以便网卡来源读取宿主网卡。面板仍绑定 127.0.0.1；如需修改，请设置 OZDDNS_LISTEN。">
+                  The bundled Compose file uses host networking so interface sources
+                  can read the host's NICs. The panel still binds 127.0.0.1; set
+                  <code>OZDDNS_LISTEN</code> to change it.
+                </p>
+              </div>
+
+              <div class="tab-panel" id="panel-source" role="tabpanel" aria-labelledby="tab-source" hidden>
+                <div class="code-head">
+                  <span class="code-name">build</span>
+                  <button class="copy" type="button" data-copy aria-label="Copy build commands">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <rect x="9" y="9" width="11" height="11" rx="2" />
+                      <path d="M15 5.5A2.5 2.5 0 0 0 12.5 3H6a3 3 0 0 0-3 3v6.5A2.5 2.5 0 0 0 5.5 15" />
+                    </svg>
+                    <span class="copy-label" data-en="Copy" data-zh="复制">Copy</span>
+                  </button>
+                </div>
+                <pre><code>git clone https://github.com/echoface/ozddns.git
+cd ozddns
+make build
+
+./bin/ozddns --db ./ozddns.db serve</code></pre>
+                <p class="code-note" data-en="Needs Go 1.26+, Node.js 22+, and GNU Make. make build compiles the panel, embeds it, and writes ./bin/ozddns." data-zh="需要 Go 1.26+、Node.js 22+ 与 GNU Make。make build 会构建并嵌入面板，生成 ./bin/ozddns。">
+                  Needs Go 1.26+, Node.js 22+, and GNU Make.
+                  <code>make build</code> compiles the panel, embeds it, and writes
+                  <code>./bin/ozddns</code>.
+                </p>
+              </div>
+            </div>
+
+            <aside class="deploy-notes card reveal">
+              <h3 data-en="Deployment notes" data-zh="部署要点">Deployment notes</h3>
+              <ul>
+                <li>
+                  <strong data-en="Default bind" data-zh="默认监听">Default bind</strong>
+                  <span data-en="127.0.0.1:9876. Keep it on loopback unless a trusted proxy fronts the daemon." data-zh="127.0.0.1:9876。除非有可信代理前置，否则保持在回环地址。">
+                    127.0.0.1:9876. Keep it on loopback unless a trusted proxy fronts
+                    the daemon.
+                  </span>
+                </li>
+                <li>
+                  <strong data-en="Config precedence" data-zh="配置优先级">Config precedence</strong>
+                  <span data-en="flag &gt; environment &gt; config.yaml &gt; built-in default." data-zh="命令行参数 &gt; 环境变量 &gt; config.yaml &gt; 内置默认值。">
+                    flag &gt; environment &gt; <code>config.yaml</code> &gt; built-in
+                    default.
+                  </span>
+                </li>
+                <li>
+                  <strong data-en="Health check" data-zh="健康检查">Health check</strong>
+                  <span data-en="ozddns health probes /healthz using the same resolved listen address." data-zh="ozddns health 使用同一份监听配置探测 /healthz。">
+                    <code>ozddns health</code> probes <code>/healthz</code> using the
+                    same resolved listen address.
+                  </span>
+                </li>
+                <li>
+                  <strong data-en="Try the demo" data-zh="试用演示数据">Try the demo</strong>
+                  <span data-en="No DNS account handy? Start a fresh database with sample providers, tasks, and history: serve --demo." data-zh="暂时没有 DNS 账号？用 --demo 启动一个包含示例服务商、任务与历史的全新数据库。">
+                    No DNS account handy? Start a fresh database with sample
+                    providers, tasks, and history: <code>serve --demo</code>.
+                  </span>
+                </li>
+              </ul>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="security">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="section-tag"><span>06</span> <span data-en="Security" data-zh="安全">Security</span></p>
+            <h2
+              class="reveal"
+              data-en='Safe defaults, <span class="grad">where they matter.</span>'
+              data-zh='默认安全，<span class="grad">落在真正重要的地方。</span>'
+            >
+              Safe defaults, <span class="grad">where they matter.</span>
+            </h2>
+            <p
+              class="section-sub reveal"
+              data-en="OzDDNS targets a trusted single-user machine. It is explicit about where that boundary ends."
+              data-zh="OzDDNS 面向可信的单机单用户环境，并明确说明这条边界到哪里为止。"
+            >
+              OzDDNS targets a trusted single-user machine. It is explicit about
+              where that boundary ends.
+            </p>
+          </div>
+
+          <div class="security-grid">
+            <ul class="security-list">
+              <li class="reveal">
+                <span class="check" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+                </span>
+                <div>
+                  <h3 data-en="Loopback by default" data-zh="默认回环">Loopback by default</h3>
+                  <p data-en="The daemon binds 127.0.0.1:9876. An open panel reachable beyond loopback is flagged in the CLI and the UI." data-zh="守护进程绑定 127.0.0.1:9876。开放模式若可被回环之外访问，CLI 与界面都会告警。">
+                    The daemon binds 127.0.0.1:9876. An open panel reachable beyond
+                    loopback is flagged in the CLI and the UI.
+                  </p>
+                </div>
+              </li>
+              <li class="reveal">
+                <span class="check" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+                </span>
+                <div>
+                  <h3 data-en="Opt-in two-factor" data-zh="可选两步验证">Opt-in two-factor</h3>
+                  <p data-en="Password → TOTP or a single-use recovery code → an opaque server-side session. Enrollment starts from loopback." data-zh="密码 → TOTP 或一次性恢复码 → 不透明的服务端 Session。首次配置只允许从回环发起。">
+                    Password → TOTP or a single-use recovery code → an opaque
+                    server-side session. Enrollment starts from loopback.
+                  </p>
+                </div>
+              </li>
+              <li class="reveal">
+                <span class="check" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+                </span>
+                <div>
+                  <h3 data-en="No token in the browser" data-zh="浏览器不持有令牌">No token in the browser</h3>
+                  <p data-en="Only an HttpOnly, SameSite=Lax cookie is sent to the browser; the database stores token hashes." data-zh="浏览器只会收到 HttpOnly、SameSite=Lax 的 Cookie；数据库仅保存令牌哈希。">
+                    Only an <code>HttpOnly</code>, <code>SameSite=Lax</code> cookie is
+                    sent to the browser; the database stores token hashes.
+                  </p>
+                </div>
+              </li>
+              <li class="reveal">
+                <span class="check" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+                </span>
+                <div>
+                  <h3 data-en="Masked by default" data-zh="默认掩码">Masked by default</h3>
+                  <p data-en="Provider credentials are masked in normal panel, CLI, and API reads. Configuration exports do contain them — protect the files." data-zh="服务商凭据在面板、CLI 与 API 的普通读取中会被掩码。配置导出会包含凭据，请妥善保护导出文件。">
+                    Provider credentials are masked in normal panel, CLI, and API
+                    reads. Configuration exports do contain them — protect the files.
+                  </p>
+                </div>
+              </li>
+              <li class="reveal">
+                <span class="check" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+                </span>
+                <div>
+                  <h3 data-en="Proxy-aware, not proxy-trusting" data-zh="理解代理，但不盲目信任">Proxy-aware, not proxy-trusting</h3>
+                  <p data-en="trustProxy stays off until every request arrives through a proxy that overwrites X-Forwarded-Proto and X-Forwarded-For." data-zh="只有每个请求都经过会覆盖 X-Forwarded-Proto 与 X-Forwarded-For 的代理时，才应启用 trustProxy。">
+                    <code>trustProxy</code> stays off until every request arrives
+                    through a proxy that overwrites <code>X-Forwarded-Proto</code> and
+                    <code>X-Forwarded-For</code>.
+                  </p>
+                </div>
+              </li>
+              <li class="reveal">
+                <span class="check" aria-hidden="true">
+                  <svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+                </span>
+                <div>
+                  <h3 data-en="HTTPS at the edge" data-zh="HTTPS 在边缘终止">HTTPS at the edge</h3>
+                  <p data-en="OzDDNS does not terminate TLS. Put nginx or another trusted reverse proxy in front before exposing it." data-zh="OzDDNS 不终止 TLS。对外暴露前，请在前面部署 nginx 或其他可信反向代理。">
+                    OzDDNS does not terminate TLS. Put nginx or another trusted
+                    reverse proxy in front before exposing it.
+                  </p>
+                </div>
+              </li>
+            </ul>
+
+            <aside class="posture card reveal">
+              <div class="posture-head">
+                <span class="posture-dot" aria-hidden="true"></span>
+                <span data-en="Default posture" data-zh="默认姿态">Default posture</span>
+              </div>
+              <dl>
+                <div><dt>listen</dt><dd>127.0.0.1:9876</dd></div>
+                <div><dt>auth</dt><dd data-en="off until enabled" data-zh="启用前关闭">off until enabled</dd></div>
+                <div><dt>sessions</dt><dd data-en="server-side" data-zh="服务端">server-side</dd></div>
+                <div><dt>tls</dt><dd data-en="your proxy" data-zh="你的代理">your proxy</dd></div>
+                <div><dt>storage</dt><dd>SQLite</dd></div>
+                <div><dt>processes</dt><dd class="accent">1</dd></div>
+              </dl>
+              <p class="posture-foot" data-en="Single administrator, single process. No roles, API tokens, or multi-tenancy yet." data-zh="单管理员、单进程。目前没有角色、API Token 或多租户。">
+                Single administrator, single process. No roles, API tokens, or
+                multi-tenancy yet.
+              </p>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="docs">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="section-tag"><span>07</span> <span data-en="Docs" data-zh="文档">Docs</span></p>
+            <h2
+              class="reveal"
+              data-en='Read before <span class="grad">you deploy.</span>'
+              data-zh='部署之前，<span class="grad">先读这些。</span>'
+            >
+              Read before <span class="grad">you deploy.</span>
+            </h2>
+            <p
+              class="section-sub reveal"
+              data-en="Installation, the API contract, reverse proxy recipes, and the reasoning behind the design."
+              data-zh="安装方式、API 契约、反向代理示例，以及设计背后的取舍。"
+            >
+              Installation, the API contract, reverse proxy recipes, and the reasoning
+              behind the design.
+            </p>
+          </div>
+
+          <div class="docs-grid">
+            <a class="doc card reveal" href="https://github.com/echoface/ozddns/blob/master/README.md" target="_blank" rel="noreferrer">
+              <span class="doc-kind">readme</span>
+              <h3 data-en="Install &amp; operate" data-zh="安装与运维">Install &amp; operate</h3>
+              <p data-en="Quick start, configuration precedence, CLI, and deployment baseline." data-zh="快速开始、配置优先级、CLI 与部署基线。">Quick start, configuration precedence, CLI, and deployment baseline.</p>
+              <span class="doc-arrow" aria-hidden="true">→</span>
+            </a>
+            <a class="doc card reveal" href="https://github.com/echoface/ozddns/blob/master/docs/01-design.md" target="_blank" rel="noreferrer">
+              <span class="doc-kind">design</span>
+              <h3 data-en="Architecture" data-zh="架构设计">Architecture</h3>
+              <p data-en="Layers, entities, and the reconciliation model." data-zh="分层、领域实体与协调模型。">Layers, entities, and the reconciliation model.</p>
+              <span class="doc-arrow" aria-hidden="true">→</span>
+            </a>
+            <a class="doc card reveal" href="https://github.com/echoface/ozddns/blob/master/docs/api_references.md" target="_blank" rel="noreferrer">
+              <span class="doc-kind">api</span>
+              <h3 data-en="REST API" data-zh="REST API">REST API</h3>
+              <p data-en="Routes, payloads, and status codes for every surface." data-zh="所有入口的路由、载荷与状态码。">Routes, payloads, and status codes for every surface.</p>
+              <span class="doc-arrow" aria-hidden="true">→</span>
+            </a>
+            <a class="doc card reveal" href="https://github.com/echoface/ozddns/blob/master/docs/nginx.md" target="_blank" rel="noreferrer">
+              <span class="doc-kind">nginx</span>
+              <h3 data-en="Reverse proxy" data-zh="反向代理">Reverse proxy</h3>
+              <p data-en="Dedicated-domain and sub-path configurations, ready to copy." data-zh="独立域名与子路径配置，可直接复制。">Dedicated-domain and sub-path configurations, ready to copy.</p>
+              <span class="doc-arrow" aria-hidden="true">→</span>
+            </a>
+            <a class="doc card reveal" href="https://github.com/echoface/ozddns/releases" target="_blank" rel="noreferrer">
+              <span class="doc-kind">releases</span>
+              <h3 data-en="Releases" data-zh="版本发布">Releases</h3>
+              <p data-en="Tagged versions and published notes." data-zh="版本标签与发布说明。">Tagged versions and published notes.</p>
+              <span class="doc-arrow" aria-hidden="true">→</span>
+            </a>
+            <a class="doc card reveal" href="https://github.com/echoface/ozddns/pkgs/container/ozddns" target="_blank" rel="noreferrer">
+              <span class="doc-kind">image</span>
+              <h3 data-en="Container image" data-zh="容器镜像">Container image</h3>
+              <p data-en="Multi-arch builds for linux/amd64 and linux/arm64." data-zh="面向 linux/amd64 与 linux/arm64 的多架构构建。">Multi-arch builds for linux/amd64 and linux/arm64.</p>
+              <span class="doc-arrow" aria-hidden="true">→</span>
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section class="site-band">
+        <div class="wrap band-inner reveal">
+          <div>
+            <p class="section-tag"><span data-en="This page" data-zh="本页面">This page</span></p>
+            <h2 data-en="Static HTML. Zero build. Free to host." data-zh="纯静态 HTML，零构建，免费托管。">Static HTML. Zero build. Free to host.</h2>
+            <p data-en="No framework, no tracking, no external requests. Drop the site/ directory on Vercel or Cloudflare Pages and point a domain at it." data-zh="没有框架、没有跟踪脚本、没有外部请求。把 site/ 目录交给 Vercel 或 Cloudflare Pages，再绑定域名即可。">No framework, no tracking, no external requests. Drop the site/ directory on Vercel or Cloudflare Pages and point a domain at it.</p>
+          </div>
+          <a class="btn btn-ghost" href="https://github.com/echoface/ozddns/tree/master/site" target="_blank" rel="noreferrer" data-en="Deployment guide" data-zh="部署指南">Deployment guide</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <div class="footer-top">
+          <div class="footer-brand">
+            <a class="brand" href="#top">
+              <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+                <circle cx="16" cy="16" r="10.5" fill="none" stroke="currentColor" stroke-width="2" opacity=".3" />
+                <path d="M16 5.5A10.5 10.5 0 0 1 26.5 16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" />
+                <circle cx="16" cy="16" r="3.2" fill="currentColor" />
+              </svg>
+              <span class="brand-name">OzDDNS</span>
+            </a>
+            <p data-en="Provider-centric dynamic DNS. One Go binary, one process, one database file." data-zh="以服务商为中心的动态 DNS。一个 Go 二进制、一个进程、一个数据库文件。">Provider-centric dynamic DNS. One Go binary, one process, one database file.</p>
+          </div>
+          <nav class="footer-links" aria-label="Footer">
+            <a href="https://github.com/echoface/ozddns" target="_blank" rel="noreferrer">GitHub</a>
+            <a href="https://github.com/echoface/ozddns/issues" target="_blank" rel="noreferrer">Issues</a>
+            <a href="https://github.com/echoface/ozddns/releases" target="_blank" rel="noreferrer">Releases</a>
+            <a href="https://github.com/echoface/ozddns/blob/master/README_ZH.md" target="_blank" rel="noreferrer" data-en="中文 README" data-zh="中文 README">中文 README</a>
+          </nav>
+        </div>
+        <div class="footer-bottom">
+          <p>© <span id="year">2026</span> OzDDNS · <span data-en="Under active development" data-zh="仍在持续开发">Under active development</span></p>
+          <p class="license">
+            <span data-en="License status: the repository does not include a license yet. Source availability alone does not grant permission to use, modify, or redistribute." data-zh="许可证状态：仓库目前尚未包含许可证。仅公开源码并不授予使用、修改或再分发权利。">License status: the repository does not include a license yet. Source availability alone does not grant permission to use, modify, or redistribute.</span>
+          </p>
+        </div>
+      </div>
+    </footer>
+
+    <script src="assets/app.js" defer></script>
+  </body>
+</html>

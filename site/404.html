@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>404 — OzDDNS</title>
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#06080b" />
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/assets/style.css" />
+    <script>
+      try {
+        var t = localStorage.getItem("oz-theme");
+        if (t !== "light" && t !== "dark") {
+          t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        }
+        document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
+    <style>
+      .nf {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+        min-height: 100svh;
+        padding-block: 64px;
+      }
+      .nf .brand {
+        margin-bottom: clamp(48px, 10vh, 96px);
+      }
+      .nf h1 {
+        max-width: 18ch;
+        font-size: clamp(2.1rem, 6vw, 3.6rem);
+        font-weight: 680;
+        line-height: 1.08;
+        letter-spacing: -0.035em;
+        text-wrap: balance;
+      }
+      .nf p {
+        max-width: 46ch;
+        margin-top: 16px;
+        color: var(--text-dim);
+        font-size: 15px;
+        line-height: 1.7;
+      }
+      .nf .btn {
+        margin-top: 28px;
+      }
+      .nf .zh {
+        display: block;
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap nf">
+      <a class="brand" href="/" aria-label="OzDDNS">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <circle cx="16" cy="16" r="10.5" fill="none" stroke="currentColor" stroke-width="2" opacity=".3" />
+          <path d="M16 5.5A10.5 10.5 0 0 1 26.5 16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" />
+          <circle cx="16" cy="16" r="3.2" fill="currentColor" />
+        </svg>
+        <span class="brand-name">OzDDNS</span>
+      </a>
+
+      <p class="eyebrow">404 · no such record</p>
+      <h1>This record does not exist.</h1>
+      <p>
+        The page you asked for is not here.
+        <span class="zh" lang="zh-Hans">这条记录不存在，页面可能已被移动或删除。</span>
+      </p>
+      <a class="btn btn-primary" href="/">Back to OzDDNS / 返回主页</a>
+    </main>
+  </body>
+</html>

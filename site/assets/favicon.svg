@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="OzDDNS">
+  <rect width="64" height="64" rx="15" fill="#0a0e14" />
+  <circle cx="32" cy="32" r="18" fill="none" stroke="#4fe3c1" stroke-opacity=".32" stroke-width="3" />
+  <path d="M32 14a18 18 0 0 1 18 18" fill="none" stroke="#4fe3c1" stroke-width="4" stroke-linecap="round" />
+  <circle cx="32" cy="32" r="5" fill="#4fe3c1" />
+</svg>
