@@ -16,9 +16,9 @@
       themeToDark: "Switch to dark theme",
       menuOpen: "Open menu",
       menuClose: "Close menu",
-      title: "OzDDNS — DNS records that stay in sync",
+      title: "OzDDNS — Self-hosted dynamic DNS in a single Go binary",
       description:
-        "OzDDNS is a provider-centric dynamic DNS manager. It discovers your address, reads the live record, and writes only when the two disagree. One Go binary with a web panel, REST API, CLI, scheduler, and SQLite.",
+        "Self-hosted dynamic DNS in one Go binary. OzDDNS reads the live record and writes only when your address changes. Panel, CLI, API, scheduler, and SQLite.",
     },
     zh: {
       copy: "复制",
@@ -29,9 +29,9 @@
       themeToDark: "切换到暗色主题",
       menuOpen: "打开菜单",
       menuClose: "关闭菜单",
-      title: "OzDDNS — 始终同步的 DNS 记录",
+      title: "OzDDNS — 单二进制自托管动态 DNS",
       description:
-        "OzDDNS 是以服务商为中心的动态 DNS 管理器：发现地址、读取线上记录，只在两者不一致时写入。单个 Go 二进制内置管理面板、REST API、CLI、调度器与 SQLite 存储。",
+        "单 Go 二进制的自托管动态 DNS 管理器。读取线上记录，仅在地址变化时写入；内置面板、CLI、API、调度器与 SQLite。",
     },
   };
 

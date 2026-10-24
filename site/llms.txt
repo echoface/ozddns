@@ -1,0 +1,53 @@
+# OzDDNS
+
+> OzDDNS is a provider-centric, self-hosted dynamic DNS manager distributed as a single Go binary. It discovers the current address, reads the live DNS record, and writes only when the desired state differs. The binary embeds a Vue web panel, REST API, CLI, scheduler, and SQLite storage.
+
+- Version: 2.0.3
+- Homepage: https://ozddns.pages.dev/
+- Source: https://github.com/echoface/ozddns
+- Container image: ghcr.io/echoface/ozddns
+- Default bind: 127.0.0.1:9876
+- Runtime: Go 1.26+, one process, SQLite
+- License: no license file yet; source-available, not open source
+
+## Core behavior
+
+- Address sources: HTTP endpoint, local network interface, shell command, and static value.
+- Reconciliation: read the live record, diff it, and write only when it differs. Dry runs are available from the panel, CLI, and API.
+- Scheduling: per-task intervals with jitter, concurrency limits, and rolling execution history.
+- Surfaces: the embedded Vue panel, REST API, and CLI share the same application layer.
+- Storage: SQLite, with configuration export/import and webhook notifications.
+
+## Supported providers
+
+Cloudflare, Alibaba Cloud DNS (alidns), DNSPod, DuckDNS, Namecheap, GoDaddy, deSEC, Vercel DNS, and custom HTTP endpoints. A and AAAA records are supported where the provider allows them. Cloudflare records can carry proxy state.
+
+## Deployment
+
+- Run the published multi-arch container image (`linux/amd64`, `linux/arm64`) or build the binary from source.
+- One `ozddns serve` process owns HTTP, scheduling, reconciliation, and SQLite. systemd or Docker supervises that single process.
+- Default panel address: `http://127.0.0.1:9876/`.
+- OzDDNS does not terminate TLS; use a trusted reverse proxy.
+
+## Security model
+
+- Targets a trusted single-user machine.
+- Open mode is only appropriate on loopback. Exposure beyond loopback without authorization is warned in the CLI and UI.
+- Authorization is opt-in: password, TOTP or single-use recovery code, then an opaque server-side session.
+- First authorization setup is accepted only from loopback.
+- Provider credentials are masked in ordinary reads; exports contain them and must be protected.
+- `trustProxy` is only for deployments where a trusted proxy overwrites `X-Forwarded-Proto` and `X-Forwarded-For`.
+
+## Documentation
+
+- [README](https://github.com/echoface/ozddns/blob/master/README.md)
+- [Chinese README](https://github.com/echoface/ozddns/blob/master/README_ZH.md)
+- [Design](https://github.com/echoface/ozddns/blob/master/docs/01-design.md)
+- [REST API](https://github.com/echoface/ozddns/blob/master/docs/api_references.md)
+- [Reverse proxy](https://github.com/echoface/ozddns/blob/master/docs/nginx.md)
+- [Releases](https://github.com/echoface/ozddns/releases)
+
+## Optional
+
+- [Homepage source](https://github.com/echoface/ozddns/tree/master/site)
+- [Sitemap](https://ozddns.pages.dev/sitemap.xml)
