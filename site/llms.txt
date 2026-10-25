@@ -3,7 +3,7 @@
 > OzDDNS is a provider-centric, self-hosted dynamic DNS manager distributed as a single Go binary. It discovers the current address, reads the live DNS record, and writes only when the desired state differs. The binary embeds a Vue web panel, REST API, CLI, scheduler, and SQLite storage.
 
 - Version: 2.0.3
-- Homepage: https://ozddns.pages.dev/
+- Homepage: https://ozddns.echoface.cn/
 - Source: https://github.com/echoface/ozddns
 - Container image: ghcr.io/echoface/ozddns
 - Default bind: 127.0.0.1:9876
@@ -50,4 +50,4 @@ Cloudflare, Alibaba Cloud DNS (alidns), DNSPod, DuckDNS, Namecheap, GoDaddy, deS
 ## Optional
 
 - [Homepage source](https://github.com/echoface/ozddns/tree/master/site)
-- [Sitemap](https://ozddns.pages.dev/sitemap.xml)
+- [Sitemap](https://ozddns.echoface.cn/sitemap.xml)

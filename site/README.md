@@ -25,7 +25,7 @@ site/
 └── vercel.json         Vercel 响应头与缓存
 ```
 
-> 线上 canonical 地址目前是 <https://ozddns.pages.dev/>。
+> 线上 canonical 地址目前是 <https://ozddns.echoface.cn/>。
 > 页面、结构化数据和 `llms.txt` 都使用这个绝对地址。
 
 ## 本地预览
@@ -135,10 +135,10 @@ Pages 项目 → **Custom domains → Set up a domain**。若域名已托管在�
 
 ### 更换域名时
 
-当前 canonical 为 `https://ozddns.pages.dev/`。绑定自定义域名后，必须同步修改：
+当前 canonical 为 `https://ozddns.echoface.cn/`。以后更换域名时，必须同步修改：
 
 1. `index.html`：`canonical`、`og:url`、`og:image`、`twitter:image`，以及 JSON-LD 中
-   所有 `https://ozddns.pages.dev/` 地址；
+   所有 `https://ozddns.echoface.cn/` 地址；
 2. `sitemap.xml`：`<loc>`；
 3. `robots.txt`：`Sitemap:`；
 4. `llms.txt`：Homepage 与 Sitemap 链接；
@@ -159,7 +159,7 @@ Pages 项目 → **Custom domains → Set up a domain**。若域名已托管在�
   `softwareVersion`、`llms.txt` 和 `assets/og.png` 中。发布新版本时同时修改这些位置
   并重新生成分享图。
 - **社交分享图**：`og:image` 与 `twitter:image` 已使用绝对地址
-  `https://ozddns.pages.dev/assets/og.png`；换域名时按上一节同步。
+  `https://ozddns.echoface.cn/assets/og.png`；换域名时按上一节同步。
 - **响应头**：`_headers` 只对 Cloudflare Pages 生效，`vercel.json` 只对 Vercel
   生效；修改安全头或缓存时两边都要改。
 - **不要**把真实的 DNS 凭据、面板截图或未公开的主机名放进页面。

@@ -35,4 +35,4 @@ Allow: /
 User-agent: CCBot
 Allow: /
 
-Sitemap: https://ozddns.pages.dev/sitemap.xml
+Sitemap: https://ozddns.echoface.cn/sitemap.xml
