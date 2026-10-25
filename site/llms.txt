@@ -18,6 +18,15 @@
 - Surfaces: the embedded Vue panel, REST API, and CLI share the same application layer.
 - Storage: SQLite, with configuration export/import and webhook notifications.
 
+## Screenshots
+
+- [Panel overview](https://ozddns.echoface.cn/assets/screenshots/overview.png)
+- [Sync tasks](https://ozddns.echoface.cn/assets/screenshots/sync-tasks.png)
+- [Providers](https://ozddns.echoface.cn/assets/screenshots/providers.png)
+- [Executions](https://ozddns.echoface.cn/assets/screenshots/executions.png)
+
+Screenshots use the `--demo` dataset; addresses, domains, and credentials are fictional.
+
 ## Supported providers
 
 Cloudflare, Alibaba Cloud DNS (alidns), DNSPod, DuckDNS, Namecheap, GoDaddy, deSEC, Vercel DNS, and custom HTTP endpoints. A and AAAA records are supported where the provider allows them. Cloudflare records can carry proxy state.

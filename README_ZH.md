@@ -35,6 +35,19 @@ SQLite 存储。共享协调引擎会读取当前 DNS 记录、计算差异，�
 - **多语言与主题**：管理面板支持 English、简体中文、日本語，以及亮色、暗色和
   跟随系统主题。
 
+## 界面截图
+
+截图来自内置管理面板的 `--demo` 数据集；地址、域名和凭据均为虚构值。
+点击图片可打开原始尺寸 PNG。
+
+| 总览 | 同步任务 |
+| --- | --- |
+| [![总览](site/assets/screenshots/overview.png)](site/assets/screenshots/overview.png) | [![同步任务](site/assets/screenshots/sync-tasks.png)](site/assets/screenshots/sync-tasks.png) |
+
+| 服务商 | 执行历史 |
+| --- | --- |
+| [![服务商](site/assets/screenshots/providers.png)](site/assets/screenshots/providers.png) | [![执行历史](site/assets/screenshots/executions.png)](site/assets/screenshots/executions.png) |
+
 ## 支持的服务商
 
 | 服务商         | 类型           |

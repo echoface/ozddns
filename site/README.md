@@ -16,7 +16,8 @@ site/
 │   ├── apple-touch-icon.png
 │   ├── icon-192.png    PWA / manifest 图标
 │   ├── icon-512.png
-│   └── og.png          社交分享图（1200×630）
+│   ├── og.png          社交分享图（1200×630）
+│   └── screenshots/    内置面板 Demo 截图（1440×1000 PNG）
 ├── llms.txt            面向 AI 搜索/生成式引擎的项目摘要
 ├── robots.txt          爬虫规则、AI 爬虫放行、Sitemap
 ├── sitemap.xml         站点地图
@@ -160,9 +161,13 @@ Pages 项目 → **Custom domains → Set up a domain**。若域名已托管在�
   并重新生成分享图。
 - **社交分享图**：`og:image` 与 `twitter:image` 已使用绝对地址
   `https://ozddns.echoface.cn/assets/og.png`；换域名时按上一节同步。
+- **面板截图**：`assets/screenshots/` 是内置面板的 Demo 截图（1440×1000，暗色
+  主题），用于 README 与首页的 Panel 区块。更新时用 `--demo` 启动面板，在
+  Headless Chrome 中截图，并确认地址属于文档保留段（如 `203.0.113.0/24`、
+  `2001:db8::/32`），没有真实公网 IP、域名或凭据。
 - **响应头**：`_headers` 只对 Cloudflare Pages 生效，`vercel.json` 只对 Vercel
   生效；修改安全头或缓存时两边都要改。
-- **不要**把真实的 DNS 凭据、面板截图或未公开的主机名放进页面。
+- **不要**把真实的 DNS 凭据、未公开的主机名或未脱敏的面板截图放进页面。
 
 ## 设计约束
 

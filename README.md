@@ -42,6 +42,19 @@ desired state differs.
 - **Localized panel**: English, Simplified Chinese, and Japanese; light, dark,
   and system themes.
 
+## Screenshots
+
+Captured from the embedded panel with the `--demo` dataset. Addresses, domains,
+and credentials are fictional. Click an image to open the full-size PNG.
+
+| Overview | Sync tasks |
+| --- | --- |
+| [![Overview](site/assets/screenshots/overview.png)](site/assets/screenshots/overview.png) | [![Sync tasks](site/assets/screenshots/sync-tasks.png)](site/assets/screenshots/sync-tasks.png) |
+
+| Providers | Executions |
+| --- | --- |
+| [![Providers](site/assets/screenshots/providers.png)](site/assets/screenshots/providers.png) | [![Executions](site/assets/screenshots/executions.png)](site/assets/screenshots/executions.png) |
+
 ## Supported providers
 
 | Provider             | Type         |

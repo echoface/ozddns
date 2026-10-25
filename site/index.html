@@ -107,6 +107,12 @@
             "applicationSubCategory": "Dynamic DNS",
             "operatingSystem": "Linux, macOS, Windows, Docker",
             "softwareVersion": "2.0.3",
+            "screenshot": [
+              "https://ozddns.echoface.cn/assets/screenshots/overview.png",
+              "https://ozddns.echoface.cn/assets/screenshots/sync-tasks.png",
+              "https://ozddns.echoface.cn/assets/screenshots/providers.png",
+              "https://ozddns.echoface.cn/assets/screenshots/executions.png"
+            ],
             "url": "https://ozddns.echoface.cn/",
             "codeRepository": "https://github.com/echoface/ozddns",
             "downloadUrl": "https://github.com/echoface/ozddns/releases",
@@ -724,17 +730,128 @@ docker run -d --name ozddns \
             </li>
           </ul>
 
-          <p class="providers-note reveal" data-en="IPv4 A and IPv6 AAAA targets where the provider supports them. Cloudflare proxy state is available on Cloudflare records." data-zh="在服务商支持的前提下管理 IPv4 A 与 IPv6 AAAA 记录；Cloudflare 记录可设置代理状态。">
-            IPv4 A and IPv6 AAAA targets where the provider supports them. Cloudflare
-            proxy state is available on Cloudflare records.
+          <p class="providers-note reveal">
+            <span data-en="IPv4 A and IPv6 AAAA targets where the provider supports them. Cloudflare proxy state is available on Cloudflare records." data-zh="在服务商支持的前提下管理 IPv4 A 与 IPv6 AAAA 记录；Cloudflare 记录可设置代理状态。">
+              IPv4 A and IPv6 AAAA targets where the provider supports them. Cloudflare
+              proxy state is available on Cloudflare records.
+            </span>
+            <a href="#panel" data-en="See the panel →" data-zh="查看面板 →">See the panel →</a>
           </p>
+        </div>
+      </section>
+
+      <section class="section" id="panel">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="section-tag"><span>04</span> <span data-en="Panel" data-zh="面板">Panel</span></p>
+            <h2
+              class="reveal"
+              data-en='The whole loop, <span class="grad">in one panel.</span>'
+              data-zh='完整闭环，<span class="grad">都在一个面板里。</span>'
+            >
+              The whole loop, <span class="grad">in one panel.</span>
+            </h2>
+            <p
+              class="section-sub reveal"
+              data-en="Captured from the embedded panel with the demo dataset: overview, sync tasks, and execution history. No mockups."
+              data-zh="来自内置面板与 Demo 数据的真实截图：总览、同步任务与执行历史，不是示意图。"
+            >
+              Captured from the embedded panel with the demo dataset: overview, sync
+              tasks, and execution history. No mockups.
+            </p>
+          </div>
+
+          <div class="panel-gallery">
+            <figure class="panel-shot reveal">
+              <a
+                href="assets/screenshots/overview.png"
+                target="_blank"
+                rel="noreferrer"
+              >
+                <img
+                  src="assets/screenshots/overview.png"
+                  alt="OzDDNS overview panel showing IPv4 and IPv6 address inspection, active task counts, and a sync task table"
+                  width="1440"
+                  height="1000"
+                  loading="lazy"
+                  decoding="async"
+                />
+              </a>
+              <figcaption>
+                <b data-en="Overview" data-zh="总览">Overview</b>
+                <span
+                  data-en="Address inspection, active tasks, record counts, and failure state at a glance."
+                  data-zh="地址检查、活跃任务、记录数量与失败状态一目了然。"
+                >
+                  Address inspection, active tasks, record counts, and failure state at
+                  a glance.
+                </span>
+              </figcaption>
+            </figure>
+
+            <div class="panel-shot-grid">
+              <figure class="panel-shot reveal">
+                <a
+                  href="assets/screenshots/sync-tasks.png"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <img
+                    src="assets/screenshots/sync-tasks.png"
+                    alt="OzDDNS sync tasks table with record type, interval, last result, and next run"
+                    width="1440"
+                    height="1000"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </a>
+                <figcaption>
+                  <b data-en="Sync tasks" data-zh="同步任务">Sync tasks</b>
+                  <span
+                    data-en="Each task pairs a record with an interval and shows its last result and next run."
+                    data-zh="每个任务绑定一条记录与运行间隔，并展示上次结果和下次运行时间。"
+                  >
+                    Each task pairs a record with an interval and shows its last result
+                    and next run.
+                  </span>
+                </figcaption>
+              </figure>
+
+              <figure class="panel-shot reveal">
+                <a
+                  href="assets/screenshots/executions.png"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <img
+                    src="assets/screenshots/executions.png"
+                    alt="OzDDNS execution history with diffs, durations, triggers, and provider responses"
+                    width="1440"
+                    height="1000"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </a>
+                <figcaption>
+                  <b data-en="Executions" data-zh="执行历史">Executions</b>
+                  <span
+                    data-en="Every run records the exact diff, duration, trigger, and provider response."
+                    data-zh="每次运行都会记录精确差异、耗时、触发方式与服务商响应。"
+                  >
+                    Every run records the exact diff, duration, trigger, and provider
+                    response.
+                  </span>
+                </figcaption>
+              </figure>
+            </div>
+          </div>
         </div>
       </section>
 
       <section class="section" id="workflow">
         <div class="wrap">
           <div class="section-head">
-            <p class="section-tag"><span>04</span> <span data-en="Setup" data-zh="配置">Setup</span></p>
+            <p class="section-tag"><span>05</span> <span data-en="Setup" data-zh="配置">Setup</span></p>
             <h2
               class="reveal"
               data-en='From zero to scheduled, <span class="grad">in four steps.</span>'
@@ -812,7 +929,7 @@ docker run -d --name ozddns \
       <section class="section" id="deploy">
         <div class="wrap">
           <div class="section-head">
-            <p class="section-tag"><span>05</span> <span data-en="Deploy" data-zh="部署">Deploy</span></p>
+            <p class="section-tag"><span>06</span> <span data-en="Deploy" data-zh="部署">Deploy</span></p>
             <h2
               class="reveal"
               data-en='Run it wherever <span class="grad">a container fits.</span>'
@@ -987,7 +1104,7 @@ make build
       <section class="section" id="security">
         <div class="wrap">
           <div class="section-head">
-            <p class="section-tag"><span>06</span> <span data-en="Security" data-zh="安全">Security</span></p>
+            <p class="section-tag"><span>07</span> <span data-en="Security" data-zh="安全">Security</span></p>
             <h2
               class="reveal"
               data-en='Safe defaults, <span class="grad">where they matter.</span>'
@@ -1107,7 +1224,7 @@ make build
       <section class="section" id="faq">
         <div class="wrap">
           <div class="section-head">
-            <p class="section-tag"><span>07</span> <span data-en="FAQ" data-zh="常见问题">FAQ</span></p>
+            <p class="section-tag"><span>08</span> <span data-en="FAQ" data-zh="常见问题">FAQ</span></p>
             <h2
               class="reveal"
               data-en='Answers, <span class="grad">before you ask.</span>'
@@ -1238,7 +1355,7 @@ make build
       <section class="section" id="docs">
         <div class="wrap">
           <div class="section-head">
-            <p class="section-tag"><span>08</span> <span data-en="Docs" data-zh="文档">Docs</span></p>
+            <p class="section-tag"><span>09</span> <span data-en="Docs" data-zh="文档">Docs</span></p>
             <h2
               class="reveal"
               data-en='Read before <span class="grad">you deploy.</span>'
